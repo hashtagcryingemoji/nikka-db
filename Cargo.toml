@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/nikkadb-client",
+    "crates/nikkadb-server",
+    "crates/shared",
+    "crates/e2e-tests"
+]
+resolver = "2"
+
+[workspace.lints.clippy]
+pedantic = "deny"

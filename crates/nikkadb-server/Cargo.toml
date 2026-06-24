@@ -1,0 +1,10 @@
+[package]
+name = "nikkadb-server"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+shared = { path = "../shared"}
+
+[lints]
+workspace = true
