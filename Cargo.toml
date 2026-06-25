@@ -3,7 +3,8 @@ members = [
     "crates/nikkadb-client",
     "crates/nikkadb-server",
     "crates/shared",
-    "crates/e2e-tests"
+    "crates/e2e-tests",
+    "crates/samples"
 ]
 resolver = "2"
 

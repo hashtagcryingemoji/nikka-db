@@ -99,9 +99,15 @@ impl TrieNode {
                 for pair in child_regex {
                     for word in pair.1.find_regex(&regex_pattern[2..]) {
                         //println!("{}", word);
-                        let new_word =
-                            self.char.to_string() + &child.char.to_string() + &pair.0 + &word;
-                        v.push(new_word);
+
+                        if self.char == '\0' {
+                            let new_word = child.char.to_string() + &pair.0 + &word;
+                            v.push(new_word);
+                        } else {
+                            let new_word =
+                                self.char.to_string() + &child.char.to_string() + &pair.0 + &word;
+                            v.push(new_word);
+                        }
                     }
                 }
             }
@@ -118,8 +124,12 @@ impl TrieNode {
                 //println!("{:?}", child_regex);
                 //println!("{:?}", child.get_all());
                 for word in child_regex {
-                    let new_word = self.char.to_string() + &word;
-                    v.push(new_word);
+                    if self.char == '\0' {
+                        v.push(word);
+                    } else {
+                        let new_word = self.char.to_string() + &word;
+                        v.push(new_word);
+                    }
                 }
             }
 

@@ -1,0 +1,8 @@
+[package]
+name = "samples"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+nikkadb-client = { path = "../nikkadb-client" }
+nikkadb-server = { path = "../nikkadb-server" }

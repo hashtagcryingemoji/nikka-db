@@ -25,5 +25,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "samples"
+version = "1.0.0"
+dependencies = [
+ "nikkadb-client",
+ "nikkadb-server",
+]
+
+[[package]]
 name = "shared"
 version = "1.0.0"

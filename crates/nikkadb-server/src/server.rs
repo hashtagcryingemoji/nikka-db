@@ -28,11 +28,11 @@ impl NikkaServer {
         let listener = serv.tcp_listener;
 
         thread::spawn(move || {
-            println!("server is up");
+            //println!("server is up");
             loop {
                 match listener.accept() {
                     Ok((socket, _)) => {
-                        println!("client connected");
+                        //println!("client connected");
                         if tx.send(socket).is_err() {
                             break;
                         }
@@ -45,7 +45,7 @@ impl NikkaServer {
 
         'outer_loop: loop {
             while let Ok(new_socket) = rx.try_recv() {
-                println!("client recieved");
+                //println!("client recieved");
                 serv.clients.push(new_socket);
             }
 
@@ -60,7 +60,7 @@ impl NikkaServer {
                     Err(ref e) if e.kind() == ErrorKind::UnexpectedEof => {
                         if buffer[0] == 0 {
                             serv.clients.remove(i);
-                            println!("client disconnected");
+                            //println!("client disconnected");
                             continue;
                         }
                     }
@@ -68,7 +68,7 @@ impl NikkaServer {
                     Ok(()) => {
                         if buffer[0] == 0 {
                             serv.clients.remove(i);
-                            println!("client disconnected");
+                            //println!("client disconnected");
                             continue;
                         }
                     }
@@ -78,7 +78,7 @@ impl NikkaServer {
                     continue;
                 }
 
-                println!("content size recieved: {buffer:?}");
+                //println!("content size recieved: {buffer:?}");
 
                 let mut buffer = vec![0u8; buffer[0] as usize];
 
@@ -86,7 +86,7 @@ impl NikkaServer {
                     .read_exact(&mut buffer)
                     .expect("error occurred while reading a packet");
 
-                println!("content read: {buffer:?}");
+                //println!("content read: {buffer:?}");
 
                 let request: Request<String> = Request::from_bytes(&buffer);
 

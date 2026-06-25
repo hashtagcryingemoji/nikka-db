@@ -8,3 +8,7 @@ shared = { path = "../shared"}
 
 [lints]
 workspace = true
+
+[lib]
+name = "nikkadb_server"
+path = "src/lib.rs"
