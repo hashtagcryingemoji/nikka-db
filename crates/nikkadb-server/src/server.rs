@@ -263,7 +263,9 @@ impl NikkaServer {
 
                     //println!("backup has been reached");
                     backup_file.set_len(0).expect("TODO: panic message");
-                    backup_file.seek(SeekFrom::Start(0)).expect("TODO: panic message");
+                    backup_file
+                        .seek(SeekFrom::Start(0))
+                        .expect("TODO: panic message");
                     backup_file.write_all(&hm).expect("TODO: panic message");
                     backup_file.flush().expect("TODO: panic message");
                 }

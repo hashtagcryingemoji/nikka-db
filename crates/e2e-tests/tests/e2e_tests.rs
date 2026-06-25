@@ -1,9 +1,8 @@
-use nikkadb_server::server::NikkaServer;
 use nikkadb_client::client::NikkaClient;
+use nikkadb_server::server::NikkaServer;
 use std::thread::sleep;
 use std::thread::spawn;
 use std::time::Duration;
-
 
 #[test]
 fn element_insertion_test() {
