@@ -13,22 +13,16 @@ pub struct NikkaClient {
 
 impl Default for NikkaClient {
     fn default() -> Self {
-        Self::new()
+        Self::with_port("1402")
     }
 }
 
 impl NikkaClient {
     #[must_use]
-    pub fn new() -> Self {
-        NikkaClient {
-            connection: TcpStream::connect("127.0.0.1:5443").expect("error occurred while binding"),
-        }
-    }
-
-    #[must_use]
     pub fn with_port(port: &str) -> Self {
         NikkaClient {
-            connection: TcpStream::connect(format!("127.0.0.1:{port}")).expect("error occurred while binding"),
+            connection: TcpStream::connect(format!("127.0.0.1:{port}"))
+                .expect("error occurred while binding"),
         }
     }
 

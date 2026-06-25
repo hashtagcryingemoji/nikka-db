@@ -2,8 +2,8 @@ use crate::utils::trie::TrieNode;
 use std::collections::HashMap;
 
 pub struct NikkaDb {
-    storage: HashMap<String, String>,
-    trie: TrieNode,
+    pub(crate) storage : HashMap<String, String>,
+    pub(crate) trie: TrieNode,
 }
 
 impl NikkaDb {

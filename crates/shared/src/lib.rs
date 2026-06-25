@@ -1,5 +1,6 @@
 use crate::Action::{CREATE, DELETE, GET, REGEX};
 use crate::ContentType::{NNone, NString};
+use std::collections::HashMap;
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug)]
@@ -229,5 +230,48 @@ impl Serializable for String {
 
     fn from_bytes(content: &[u8]) -> Self {
         String::from_utf8(content.to_vec()).unwrap()
+    }
+}
+
+impl Serializable for HashMap<String, String> {
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut vec: Vec<u8> = Vec::new();
+
+        for (k, v) in self {
+            let k_bytes = k.as_bytes();
+            let k_len = u8::try_from(k.len()).expect("cannot support size that big yet");
+            vec.push(k_len);
+            vec.extend_from_slice(k_bytes);
+
+            let v_bytes = v.as_bytes();
+            let v_len = u8::try_from(v.len()).expect("cannot support size that big yet");
+            vec.push(v_len);
+            vec.extend_from_slice(v_bytes);
+        }
+
+        vec
+    }
+
+    fn from_bytes(content: &[u8]) -> Self {
+        let mut index = 0;
+        let mut hm = HashMap::new();
+
+        while index < content.len() {
+            let size = content[index];
+            index += 1;
+            let k = &content[index..index + size as usize];
+            index += size as usize;
+
+            let size = content[index];
+            index += 1;
+            let v = &content[index..index + size as usize];
+            index += size as usize;
+
+            let (key, value) = (String::from_bytes(k), String::from_bytes(v));
+
+            hm.insert(key, value);
+        }
+
+        hm
     }
 }
