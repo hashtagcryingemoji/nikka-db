@@ -9,10 +9,10 @@ fn main() {
 
     let mut client = NikkaClient::with_port("5434");
 
-    client.add("language:mascot:go", "gopher");
-    client.add("language:mascot:java", "duke");
-    client.add("language:framework:java", "spring");
-    client.add("language:framework:rust", "axum");
+    client.set_string("language:mascot:go", "gopher");
+    client.set_string("language:mascot:java", "duke");
+    client.set_string("language:framework:java", "spring");
+    client.set_string("language:framework:rust", "axum");
 
     println!("all about java");
     for query in client.get_regex("language:*:java") {
@@ -41,8 +41,8 @@ fn main() {
         );
     }
 
-    client.add("language:framework:typescript", "next.js");
-    client.add("language:framework:javascript", "react");
+    client.set_string("language:framework:typescript", "next.js");
+    client.set_string("language:framework:javascript", "react");
 
     println!("know the difference!");
     for query in client.get_regex("*:*:%%%%script") {

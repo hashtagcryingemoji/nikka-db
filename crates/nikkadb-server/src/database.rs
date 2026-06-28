@@ -7,13 +7,6 @@ pub struct NikkaDb {
 }
 
 impl NikkaDb {
-    pub fn new() -> Self {
-        NikkaDb {
-            storage: HashMap::new(),
-            trie: TrieNode::new(),
-        }
-    }
-
     pub fn add(&mut self, key: String, value: String) {
         self.trie.insert(&key);
         self.storage.insert(key, value);

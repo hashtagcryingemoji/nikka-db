@@ -26,7 +26,7 @@ impl NikkaClient {
         }
     }
 
-    pub fn add(&mut self, key: &str, value: &str) {
+    pub fn set_string(&mut self, key: &str, value: &str) {
         let args = vec![key.to_string(), value.to_string()];
 
         let request = Request {

@@ -14,9 +14,9 @@ fn element_insertion_test() {
 
     let mut db = NikkaClient::with_port("5433");
 
-    db.add("value", "key");
+    db.set_string("value", "key");
     assert_eq!(db.get("value"), Some(String::from("key")));
-    db.add("key", "value");
+    db.set_string("key", "value");
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn backup_test() {
     let mut db = NikkaClient::with_port("2221");
 
     for _ in 0..200 {
-        db.add("key", "value");
+        db.set_string("key", "value");
     }
 
     sleep(Duration::from_secs(1));
@@ -52,11 +52,11 @@ fn element_delete_test() {
         let _ = NikkaServer::run("1402");
     });
 
-    sleep(std::time::Duration::from_millis(100));
+    sleep(Duration::from_millis(100));
 
     let mut db = NikkaClient::default();
 
-    db.add("value", "key");
+    db.set_string("value", "key");
     db.remove("value");
     assert_eq!(db.get("value"), None);
 }

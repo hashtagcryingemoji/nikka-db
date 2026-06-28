@@ -2,6 +2,7 @@ use crate::database::NikkaDb;
 use crate::utils::trie::TrieNode;
 use shared::ContentType::{NNone, NString};
 use shared::{
+    Action,
     Action::{CREATE, DELETE, GET, REGEX},
     Request, Response, Serializable,
 };
@@ -49,8 +50,12 @@ impl NikkaServer {
         let (backup_notifier, backup_receiver) = channel::<bool>();
         let mut storage_backup_raw = Vec::new();
 
-        backup.seek(SeekFrom::Start(0));
-        backup.read_to_end(&mut storage_backup_raw);
+        backup
+            .seek(SeekFrom::Start(0))
+            .expect("cannot reach backup file");
+        backup
+            .read_to_end(&mut storage_backup_raw)
+            .expect("cannot reach backup file");
 
         //println!("backup has been reached: {:?}", storage_backup_raw);
 
@@ -87,7 +92,7 @@ impl NikkaServer {
         let mutex_clone = Arc::clone(&mutex);
 
         thread::spawn(move || {
-            NikkaServer::backup_control(&mutex_clone, serv.backup_receiver, serv.backup);
+            backup_control(&mutex_clone, serv.backup_receiver, serv.backup);
         });
 
         thread::spawn(move || {
@@ -115,13 +120,13 @@ impl NikkaServer {
             }
 
             for i in (0..serv.clients.len()).rev() {
-                let client = &mut serv.clients[i];
+                let mut rclient = &serv.clients[i];
 
                 //client.set_read_timeout(Some(Duration::from_secs(1)));
 
                 let mut buffer = [0u8; 1];
 
-                match client.read_exact(&mut buffer) {
+                match rclient.read_exact(&mut buffer) {
                     Err(ref e) if e.kind() == ErrorKind::UnexpectedEof => {
                         if buffer[0] == 0 {
                             serv.clients.remove(i);
@@ -147,7 +152,7 @@ impl NikkaServer {
 
                 let mut buffer = vec![0u8; buffer[0] as usize];
 
-                client
+                rclient
                     .read_exact(&mut buffer)
                     .expect("error occurred while reading a packet");
 
@@ -162,80 +167,15 @@ impl NikkaServer {
 
                 let args = request.args;
 
-                match action {
-                    GET => {
-                        let key = &args[0];
-                        let database = mutex.lock().unwrap();
-                        let value = database.get(key);
-                        drop(database);
+                let response_bytes = process_action(action, args, &mutex);
 
-                        let response = match value {
-                            Some(value) => {
-                                let v = vec![value];
-                                Response {
-                                    size: 1 + v[0].len() as u8,
-                                    content_type: NString,
-                                    content: v,
-                                }
-                            }
-                            None => Response {
-                                size: 1,
-                                content_type: NNone,
-                                content: Vec::new(),
-                            },
-                        };
+                let mut wclient = &serv.clients[i];
 
-                        let response_byte = response.as_bytes();
+                wclient
+                    .write_all(&response_bytes)
+                    .expect("error occurred while writing a message");
 
-                        client
-                            .write_all(&response_byte)
-                            .expect("error occurred while writing a message");
-                    }
-                    CREATE => {
-                        let mut args_iter = args.into_iter();
-                        if let (Some(key), Some(value)) = (args_iter.next(), args_iter.next()) {
-                            let mut database = mutex.lock().unwrap();
-                            database.add(key, value);
-                            drop(database);
-                            counter += 1;
-                        } else {
-                            panic!("incorrect request");
-                        }
-                    }
-                    DELETE => {
-                        let key = &args[0];
-                        let mut database = mutex.lock().unwrap();
-                        database.delete(key);
-                        drop(database);
-                        counter += 1;
-                    }
-                    REGEX => {
-                        let regex = &args[0];
-
-                        let database = mutex.lock().unwrap();
-                        let content = database.find_regex(regex);
-                        drop(database);
-                        counter += 1;
-
-                        let mut size = 1;
-
-                        for piece in &content {
-                            size += piece.len() as u8;
-                        }
-
-                        let response = Response {
-                            size,
-                            content_type: NString,
-                            content,
-                        };
-
-                        let response_byte = response.as_bytes();
-
-                        client
-                            .write_all(&response_byte)
-                            .expect("error occurred while writing a message");
-                    }
-                }
+                counter += 1;
 
                 if counter >= 100 {
                     serv.backup_notifier
@@ -245,35 +185,105 @@ impl NikkaServer {
             }
         }
     }
+}
 
-    fn backup_control(
-        database: &Arc<Mutex<NikkaDb>>,
-        receiver: Receiver<bool>,
-        mut backup_file: File,
-    ) {
-        //println!("backup control");
-        loop {
-            match receiver.try_recv() {
-                Ok(_) => {
-                    let db = database.lock().unwrap();
-                    let hm = db.storage.as_bytes();
-                    drop(db);
+fn process_action(action: Action, args: Vec<String>, mutex: &Arc<Mutex<NikkaDb>>) -> Vec<u8> {
+    match action {
+        GET => {
+            let key = &args[0];
+            let database = mutex.lock().unwrap();
+            let value = database.get(key);
+            drop(database);
 
-                    //println!("storage in backup {:?}", hm);
-
-                    //println!("backup has been reached");
-                    backup_file.set_len(0).expect("TODO: panic message");
-                    backup_file
-                        .seek(SeekFrom::Start(0))
-                        .expect("TODO: panic message");
-                    backup_file.write_all(&hm).expect("TODO: panic message");
-                    backup_file.flush().expect("TODO: panic message");
+            let response = match value {
+                Some(value) => {
+                    let v = vec![value];
+                    Response {
+                        size: 1 + v[0].len() as u8,
+                        content_type: NString,
+                        content: v,
+                    }
                 }
-                Err(TryRecvError::Disconnected) => {
-                    break;
-                }
-                Err(TryRecvError::Empty) => thread::sleep(Duration::from_micros(100)),
+                None => Response {
+                    size: 1,
+                    content_type: NNone,
+                    content: Vec::new(),
+                },
+            };
+
+            let response_byte = response.as_bytes();
+
+            response_byte
+        }
+        CREATE => {
+            let mut args_iter = args.into_iter();
+            if let (Some(key), Some(value)) = (args_iter.next(), args_iter.next()) {
+                let mut database = mutex.lock().unwrap();
+                database.add(key, value);
+                drop(database);
+            } else {
+                panic!("incorrect request");
             }
+
+            Vec::new()
+        }
+        DELETE => {
+            let key = &args[0];
+            let mut database = mutex.lock().unwrap();
+            database.delete(key);
+            drop(database);
+
+            Vec::new()
+        }
+        REGEX => {
+            let regex = &args[0];
+
+            let database = mutex.lock().unwrap();
+            let content = database.find_regex(regex);
+            drop(database);
+
+            let mut size = 1;
+
+            for piece in &content {
+                size += piece.len() as u8;
+            }
+
+            let response = Response {
+                size,
+                content_type: NString,
+                content,
+            };
+
+            let response_byte = response.as_bytes();
+
+            response_byte
+        }
+    }
+}
+
+fn backup_control(database: &Arc<Mutex<NikkaDb>>, receiver: Receiver<bool>, mut backup_file: File) {
+    //println!("backup control");
+    loop {
+        match receiver.try_recv() {
+            Ok(_) => {
+                let db = database.lock().unwrap();
+                let hm = db.storage.as_bytes();
+                drop(db);
+
+                //println!("storage in backup {:?}", hm);
+
+                //println!("backup has been reached");
+                backup_file.set_len(0).expect("TODO: panic message");
+                backup_file
+                    .seek(SeekFrom::Start(0))
+                    .expect("TODO: panic message");
+                backup_file.write_all(&hm).expect("TODO: panic message");
+                backup_file.flush().expect("TODO: panic message");
+            }
+            Err(TryRecvError::Disconnected) => {
+                break;
+            }
+            Err(TryRecvError::Empty) => thread::sleep(Duration::from_micros(100)),
         }
     }
 }
