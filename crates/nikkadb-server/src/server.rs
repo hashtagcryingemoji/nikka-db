@@ -1,10 +1,11 @@
 use crate::database::NikkaDb;
 use crate::utils::trie::TrieNode;
-use shared::ContentType::{NNone, NString};
+use crate::Client;
+use crate::ClientState::{DEFAULT, TRANSACTION};
+use shared::Action::TERASE;
 use shared::{
-    Action,
-    Action::{CREATE, DELETE, GET, REGEX},
-    Request, Response, Serializable,
+    Action::{TDISCARD, TEND},
+    Request, Serializable,
 };
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -20,22 +21,27 @@ use std::time::Duration;
 
 pub struct NikkaServer {
     database: NikkaDb,
-    clients: Vec<TcpStream>,
+    clients: Vec<Client>,
     tcp_listener: TcpListener,
     backup_notifier: Sender<bool>,
     backup_receiver: Receiver<bool>,
     log: File,
     backup: File,
+    backup_counter: u8,
 }
 
 impl Default for NikkaServer {
     fn default() -> Self {
-        Self::new_with_port("1402")
+        Self::with_port("1402")
     }
 }
 
 impl NikkaServer {
-    pub fn new_with_port(port: &str) -> Self {
+    pub fn new() -> Self {
+        Self::with_port("1402")
+    }
+
+    pub fn with_port(port: &str) -> Self {
         let log = OpenOptions::new()
             .read(true)
             .write(true)
@@ -76,29 +82,27 @@ impl NikkaServer {
             backup_receiver,
             log,
             backup,
+            backup_counter: 0,
         }
     }
 
-    pub fn run(port: &str) {
-        let mut counter = 0;
-
-        let mut serv = NikkaServer::new_with_port(port);
+    pub fn run(mut self) {
         let (tx, rx) = channel::<TcpStream>();
-        let listener = serv.tcp_listener;
 
-        let mutex = Arc::new(Mutex::new(serv.database));
+        let mutex = Arc::new(Mutex::new(self.database));
         let mutex_clone = Arc::clone(&mutex);
 
         thread::spawn(move || {
-            backup_control(&mutex_clone, &serv.backup_receiver, serv.backup);
+            backup_control(&mutex_clone, &self.backup_receiver, self.backup);
         });
 
         thread::spawn(move || loop {
-            match listener.accept() {
+            match self.tcp_listener.accept() {
                 Ok((socket, _)) => {
                     socket
                         .set_nonblocking(true)
                         .expect("cannot set socket to non blocking mode");
+                    //println!("client connected");
                     if tx.send(socket).is_err() {
                         break;
                     }
@@ -112,23 +116,30 @@ impl NikkaServer {
 
         'outer_loop: loop {
             while let Ok(new_socket) = rx.try_recv() {
-                serv.clients.push(new_socket);
+                let client = Client {
+                    socket: new_socket,
+                    state: DEFAULT,
+                    queue: Default::default(),
+                };
+
+                self.clients.push(client);
             }
 
-            for i in (0..serv.clients.len()).rev() {
-                let rclient = &serv.clients[i];
+            for i in (0..self.clients.len()).rev() {
+                let rclient = &self.clients[i].socket;
 
                 let mut reader = BufReader::new(rclient);
 
                 let mut data_vec = Vec::new();
 
                 'harvesting: loop {
+                    #[allow(unused_assignments)]
                     let mut consumed_data_size = 0;
                     match reader.fill_buf() {
                         Ok(buffer) => {
                             if buffer.len() < 1 {
                                 println!("client disconnected");
-                                serv.clients.remove(i);
+                                self.clients.remove(i);
                                 continue 'outer_loop;
                             }
 
@@ -163,22 +174,28 @@ impl NikkaServer {
 
                 for bytes in &data_vec {
                     let request = Request::<String>::from_bytes(&bytes);
-                    let action = request.action;
 
-                    let args = request.args;
+                    if self.clients[i].state == TRANSACTION
+                        && (request.action != TDISCARD
+                            && request.action != TEND
+                            && request.action != TERASE)
+                    {
+                        self.clients[i].queue.push_back(request);
+                        continue;
+                    }
 
-                    let response_bytes = process_action(action, args, &mutex);
+                    let response_bytes = self.clients[i].process_action(request, &mutex);
 
-                    let mut wclient = &serv.clients[i];
+                    let mut wclient = &self.clients[i].socket;
 
                     wclient
                         .write_all(&response_bytes)
                         .expect("error occurred while writing a message");
 
-                    counter += 1;
+                    self.backup_counter += 1;
 
-                    if counter >= 100 {
-                        serv.backup_notifier.send(true).expect(
+                    if self.backup_counter >= 100 {
+                        self.backup_notifier.send(true).expect(
                             "cannot send backup notification, probably side thread is dead",
                         );
                     }
@@ -188,81 +205,11 @@ impl NikkaServer {
     }
 }
 
-fn process_action(action: Action, args: Vec<String>, mutex: &Arc<Mutex<NikkaDb>>) -> Vec<u8> {
-    match action {
-        GET => {
-            let key = &args[0];
-            let database = mutex.lock().unwrap();
-            let value = database.get(key);
-            drop(database);
-
-            let response = match value {
-                Some(value) => {
-                    let v = vec![value];
-                    Response {
-                        size: 1 + v[0].len() as u8,
-                        content_type: NString,
-                        content: v,
-                    }
-                }
-                None => Response {
-                    size: 1,
-                    content_type: NNone,
-                    content: Vec::new(),
-                },
-            };
-
-            let response_byte = response.as_bytes();
-
-            response_byte
-        }
-        CREATE => {
-            let mut args_iter = args.into_iter();
-            if let (Some(key), Some(value)) = (args_iter.next(), args_iter.next()) {
-                let mut database = mutex.lock().unwrap();
-                database.add(key, value);
-                drop(database);
-            } else {
-                panic!("incorrect request");
-            }
-
-            Vec::new()
-        }
-        DELETE => {
-            let key = &args[0];
-            let mut database = mutex.lock().unwrap();
-            database.delete(key);
-            drop(database);
-
-            Vec::new()
-        }
-        REGEX => {
-            let regex = &args[0];
-
-            let database = mutex.lock().unwrap();
-            let content = database.find_regex(regex);
-            drop(database);
-
-            let mut size = 1;
-
-            for piece in &content {
-                size += piece.len() as u8;
-            }
-
-            let response = Response {
-                size,
-                content_type: NString,
-                content,
-            };
-
-            let response_byte = response.as_bytes();
-
-            response_byte
-        }
-    }
-}
-
-fn backup_control(database: &Arc<Mutex<NikkaDb>>, receiver: &Receiver<bool>, mut backup_file: File) {
+fn backup_control(
+    database: &Arc<Mutex<NikkaDb>>,
+    receiver: &Receiver<bool>,
+    mut backup_file: File,
+) {
     loop {
         match receiver.try_recv() {
             Ok(_) => {

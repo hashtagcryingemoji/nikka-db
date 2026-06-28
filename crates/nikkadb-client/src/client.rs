@@ -125,4 +125,60 @@ impl NikkaClient {
 
         response.content
     }
+
+    pub fn begin_transaction(&mut self) {
+        let request: Request<String> = Request {
+            size: 1,
+            action: Action::TSTART,
+            args: Vec::new(),
+        };
+
+        let content = request.as_bytes();
+
+        self.connection
+            .write_all(&content)
+            .expect("error occurred while writing a message");
+    }
+
+    pub fn send_transaction(&mut self) {
+        let request: Request<String> = Request {
+            size: 1,
+            action: Action::TEND,
+            args: Vec::new(),
+        };
+
+        let content = request.as_bytes();
+
+        self.connection
+            .write_all(&content)
+            .expect("error occurred while writing a message");
+    }
+
+    pub fn erase_transaction(&mut self) {
+        let request: Request<String> = Request {
+            size: 1,
+            action: Action::TERASE,
+            args: Vec::new(),
+        };
+
+        let content = request.as_bytes();
+
+        self.connection
+            .write_all(&content)
+            .expect("error occurred while writing a message");
+    }
+
+    pub fn abort_transaction(&mut self) {
+        let request: Request<String> = Request {
+            size: 1,
+            action: Action::TDISCARD,
+            args: Vec::new(),
+        };
+
+        let content = request.as_bytes();
+
+        self.connection
+            .write_all(&content)
+            .expect("error occurred while writing a message");
+    }
 }

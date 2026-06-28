@@ -1,10 +1,15 @@
 use nikkadb_client::client::NikkaClient;
 use nikkadb_server::server::NikkaServer;
+use std::thread::spawn;
 
 fn main() {
-    //create a server side of database
-    std::thread::spawn(|| {
-        let _ = NikkaServer::run("5434");
+    transaction()
+}
+
+fn basic() {
+    spawn(|| {
+        let db = NikkaServer::with_port("5435");
+        db.run();
     });
 
     let mut client = NikkaClient::with_port("5434");
@@ -61,4 +66,24 @@ fn main() {
             client.get(&query).unwrap_or("undefined".to_string())
         );
     }
+}
+
+fn transaction() {
+    std::thread::spawn(|| {
+        let db = NikkaServer::with_port("6767");
+        db.run();
+    });
+
+    let mut client = NikkaClient::with_port("6767");
+
+    client.begin_transaction();
+    client.set_string("golang", "good");
+    client.erase_transaction();
+    client.set_string("java", "good");
+    client.send_transaction();
+
+    println!(
+        "{}",
+        client.get("golang").unwrap_or("undefined".to_string())
+    );
 }

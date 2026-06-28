@@ -1,4 +1,4 @@
-use crate::Action::{CREATE, DELETE, GET, REGEX};
+use crate::Action::{CREATE, DELETE, GET, REGEX, TDISCARD, TEND, TERASE, TSTART};
 use crate::ContentType::{NNone, NString};
 use std::collections::HashMap;
 
@@ -14,7 +14,7 @@ pub trait Serializable {
     fn from_bytes(content: &[u8]) -> Self;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Request<T> {
     pub size: u8,
     pub action: Action,
@@ -29,12 +29,16 @@ pub struct Response<T> {
 }
 
 #[repr(u8)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Action {
     CREATE = 1,
     DELETE = 2,
     GET = 3,
     REGEX = 4,
+    TSTART = 5,
+    TEND = 6,
+    TERASE = 7,
+    TDISCARD = 8,
 }
 
 pub enum DatabaseManipulation {
@@ -53,6 +57,10 @@ impl TryFrom<u8> for Action {
             2 => Ok(DELETE),
             3 => Ok(GET),
             4 => Ok(REGEX),
+            5 => Ok(TSTART),
+            6 => Ok(TEND),
+            7 => Ok(TERASE),
+            8 => Ok(TDISCARD),
             _ => Err("conversion error"),
         }
     }
@@ -79,6 +87,10 @@ impl TryFrom<Action> for u8 {
             DELETE => Ok(2),
             GET => Ok(3),
             REGEX => Ok(4),
+            TSTART => Ok(5),
+            TEND => Ok(6),
+            TERASE => Ok(7),
+            TDISCARD => Ok(8),
         }
     }
 }

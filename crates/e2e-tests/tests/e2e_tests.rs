@@ -7,7 +7,8 @@ use std::time::Duration;
 #[test]
 fn element_insertion_test() {
     spawn(|| {
-        let _ = NikkaServer::run("5433");
+        let db = NikkaServer::with_port("5433");
+        db.run()
     });
 
     sleep(Duration::from_millis(100));
@@ -22,7 +23,8 @@ fn element_insertion_test() {
 #[test]
 fn backup_test() {
     spawn(|| {
-        let _ = NikkaServer::run("2221");
+        let db = NikkaServer::with_port("2221");
+        db.run();
     });
 
     sleep(Duration::from_millis(100));
@@ -36,7 +38,8 @@ fn backup_test() {
     sleep(Duration::from_secs(1));
 
     spawn(|| {
-        let _ = NikkaServer::run("2220");
+        let db = NikkaServer::with_port("2220");
+        db.run();
     });
 
     sleep(Duration::from_millis(100));
@@ -49,7 +52,8 @@ fn backup_test() {
 #[test]
 fn element_delete_test() {
     spawn(|| {
-        let _ = NikkaServer::run("1402");
+        let db = NikkaServer::new();
+        db.run();
     });
 
     sleep(Duration::from_millis(100));
@@ -59,4 +63,23 @@ fn element_delete_test() {
     db.set_string("value", "key");
     db.remove("value");
     assert_eq!(db.get("value"), None);
+}
+
+#[test]
+fn transaction_test() {
+    spawn(|| {
+        let db = NikkaServer::with_port("6767");
+        db.run();
+    });
+
+    let mut client = NikkaClient::with_port("6767");
+
+    client.begin_transaction();
+    client.set_string("key1", "value");
+    client.erase_transaction();
+    client.set_string("key2", "value");
+    client.send_transaction();
+
+    assert_eq!(client.get("key1"), None);
+    assert_eq!(client.get("key2").unwrap(), "value".to_string());
 }

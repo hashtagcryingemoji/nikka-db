@@ -94,10 +94,9 @@ impl TrieNode {
         if regex_pattern[..1] == *"*" {
             for child in &self.children {
                 let child_regex = child.get_all_before_char(&regex_pattern[1..2]);
-                
+
                 for pair in child_regex {
                     for word in pair.1.find_regex(&regex_pattern[2..]) {
-
                         if self.char == '\0' {
                             let new_word = child.char.to_string() + &pair.0 + &word;
                             v.push(new_word);
@@ -114,9 +113,7 @@ impl TrieNode {
         }
 
         if regex_pattern[..1] == *"%" {
-
             for child in &self.children {
-                
                 let child_regex = child.find_regex(&regex_pattern[1..]);
                 for word in child_regex {
                     if self.char == '\0' {
