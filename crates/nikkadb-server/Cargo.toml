@@ -12,3 +12,11 @@ workspace = true
 [lib]
 name = "nikkadb_server"
 path = "src/lib.rs"
+
+[features]
+utils_for_test = []
+
+[[test]]
+name = "trie_test"
+path = "tests/trie_test.rs"
+required-features = ["utils_for_test"]

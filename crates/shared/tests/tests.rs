@@ -2,7 +2,7 @@ use shared::Serializable;
 use std::collections::HashMap;
 
 #[test]
-fn serialization_test() {
+fn hash_map_serialization_test() {
     let mut hm = HashMap::new();
 
     hm.insert("alice".to_string(), "bob".to_string());
