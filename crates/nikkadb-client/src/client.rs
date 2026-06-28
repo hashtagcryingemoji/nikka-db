@@ -34,9 +34,8 @@ impl NikkaClient {
             action: Action::CREATE,
             args,
         };
-        //println!("request writing: {:?}", request);
+
         let content = request.as_bytes();
-        //println!("content writing: {:?}", content);
         self.connection
             .write_all(&content)
             .expect("error occurred while writing a message");
@@ -52,9 +51,7 @@ impl NikkaClient {
             args,
         };
 
-        //println!("request writing: {:?}", request);
         let content = request.as_bytes();
-        //println!("content writing: {:?}", content);
 
         self.connection
             .write_all(&content)
@@ -65,15 +62,11 @@ impl NikkaClient {
             .read_exact(&mut buffer)
             .expect("error occurred while reading a packet");
 
-        //println!("size of content: {}", buffer[0]);
-
         let mut buffer = vec![0u8; buffer[0] as usize];
 
         self.connection
             .read_exact(&mut buffer)
             .expect("error occurred while reading a packet");
-
-        //println!("content read: {:?}", buffer);
 
         let response: Response<String> = Response::from_bytes(&buffer);
 
@@ -93,9 +86,7 @@ impl NikkaClient {
             args,
         };
 
-        //println!("request writing: {:?}", request);
         let content = request.as_bytes();
-        //println!("content writing: {:?}", content);
 
         self.connection
             .write_all(&content)
@@ -124,15 +115,11 @@ impl NikkaClient {
             .read_exact(&mut buffer)
             .expect("error occurred while reading a packet");
 
-        //println!("size of content: {}", buffer[0]);
-
         let mut buffer = vec![0u8; buffer[0] as usize];
 
         self.connection
             .read_exact(&mut buffer)
             .expect("error occurred while writing a message");
-
-        //println!("content read: {:?}", buffer);
 
         let response: Response<String> = Response::from_bytes(&buffer);
 

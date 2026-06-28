@@ -94,11 +94,9 @@ impl TrieNode {
         if regex_pattern[..1] == *"*" {
             for child in &self.children {
                 let child_regex = child.get_all_before_char(&regex_pattern[1..2]);
-                //println!("{:?}", child_regex);
-                //println!("{:?}", child.get_all());
+                
                 for pair in child_regex {
                     for word in pair.1.find_regex(&regex_pattern[2..]) {
-                        //println!("{}", word);
 
                         if self.char == '\0' {
                             let new_word = child.char.to_string() + &pair.0 + &word;
@@ -116,13 +114,10 @@ impl TrieNode {
         }
 
         if regex_pattern[..1] == *"%" {
-            //println!("% achieved on {} and {}", regex_pattern, self.char);
-            //println!("new regex pattern on {}", &regex_pattern[1..]);
+
             for child in &self.children {
-                //println!("{}", child.char);
+                
                 let child_regex = child.find_regex(&regex_pattern[1..]);
-                //println!("{:?}", child_regex);
-                //println!("{:?}", child.get_all());
                 for word in child_regex {
                     if self.char == '\0' {
                         v.push(word);
@@ -135,9 +130,6 @@ impl TrieNode {
 
             return v;
         }
-
-        //println!("{}", &regex_pattern[..1]);
-        //println!("{}", &regex_pattern[1..]);
 
         let found_node = self
             .children

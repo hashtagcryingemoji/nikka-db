@@ -8,12 +8,14 @@ use shared::{
 };
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+use std::io::ErrorKind::WouldBlock;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::thread::sleep;
 use std::time::Duration;
 
 pub struct NikkaServer {
@@ -57,16 +59,12 @@ impl NikkaServer {
             .read_to_end(&mut storage_backup_raw)
             .expect("cannot reach backup file");
 
-        //println!("backup has been reached: {:?}", storage_backup_raw);
-
         let storage = HashMap::from_bytes(&storage_backup_raw);
         let mut trie = TrieNode::new();
 
         for (k, _) in &storage {
             trie.insert(k);
         }
-
-        //println!("storage from backup {:?}", storage);
 
         let database = NikkaDb { storage, trie };
 
@@ -92,95 +90,98 @@ impl NikkaServer {
         let mutex_clone = Arc::clone(&mutex);
 
         thread::spawn(move || {
-            backup_control(&mutex_clone, serv.backup_receiver, serv.backup);
+            backup_control(&mutex_clone, &serv.backup_receiver, serv.backup);
         });
 
-        thread::spawn(move || {
-            //println!("server is up");
-            loop {
-                match listener.accept() {
-                    Ok((socket, _)) => {
-                        //println!("client connected");
-                        if tx.send(socket).is_err() {
-                            break;
-                        }
+        thread::spawn(move || loop {
+            match listener.accept() {
+                Ok((socket, _)) => {
+                    socket
+                        .set_nonblocking(true)
+                        .expect("cannot set socket to non blocking mode");
+                    if tx.send(socket).is_err() {
+                        break;
                     }
+                }
 
-                    Err(e) => {
-                        panic!("unmatched error occurred: {e}")
-                    }
+                Err(e) => {
+                    panic!("unmatched error occurred: {e}")
                 }
             }
         });
 
         'outer_loop: loop {
             while let Ok(new_socket) = rx.try_recv() {
-                //println!("client recieved");
                 serv.clients.push(new_socket);
             }
 
             for i in (0..serv.clients.len()).rev() {
-                let mut rclient = &serv.clients[i];
+                let rclient = &serv.clients[i];
 
-                //client.set_read_timeout(Some(Duration::from_secs(1)));
+                let mut reader = BufReader::new(rclient);
 
-                let mut buffer = [0u8; 1];
+                let mut data_vec = Vec::new();
 
-                match rclient.read_exact(&mut buffer) {
-                    Err(ref e) if e.kind() == ErrorKind::UnexpectedEof => {
-                        if buffer[0] == 0 {
-                            serv.clients.remove(i);
-                            //println!("client disconnected");
-                            continue;
+                'harvesting: loop {
+                    let mut consumed_data_size = 0;
+                    match reader.fill_buf() {
+                        Ok(buffer) => {
+                            if buffer.len() < 1 {
+                                println!("client disconnected");
+                                serv.clients.remove(i);
+                                continue 'outer_loop;
+                            }
+
+                            let request_len = buffer[0];
+
+                            if buffer.len() > request_len as usize {
+                                consumed_data_size = request_len + 1;
+                                let data = &buffer[1..consumed_data_size as usize];
+
+                                data_vec.push(data.to_vec());
+                            } else {
+                                break 'harvesting;
+                            }
                         }
-                    }
-                    Err(_) => continue 'outer_loop,
-                    Ok(()) => {
-                        if buffer[0] == 0 {
-                            serv.clients.remove(i);
-                            //println!("client disconnected");
-                            continue;
+
+                        Err(ref e) if e.kind() == WouldBlock => {
+                            if data_vec.is_empty() {
+                                sleep(Duration::from_millis(100));
+                                continue 'outer_loop;
+                            } else {
+                                break;
+                            }
                         }
+
+                        Err(_) => panic!(),
+                    };
+
+                    if consumed_data_size > 0 {
+                        reader.consume(consumed_data_size as usize);
                     }
                 }
 
-                if buffer[0] == 0 {
-                    continue;
-                }
+                for bytes in &data_vec {
+                    let request = Request::<String>::from_bytes(&bytes);
+                    let action = request.action;
 
-                //println!("content size recieved: {buffer:?}");
+                    let args = request.args;
 
-                let mut buffer = vec![0u8; buffer[0] as usize];
+                    let response_bytes = process_action(action, args, &mutex);
 
-                rclient
-                    .read_exact(&mut buffer)
-                    .expect("error occurred while reading a packet");
+                    let mut wclient = &serv.clients[i];
 
-                //println!("content read: {buffer:?}");
+                    wclient
+                        .write_all(&response_bytes)
+                        .expect("error occurred while writing a message");
 
-                let request: Request<String> = Request::from_bytes(&buffer);
+                    counter += 1;
 
-                serv.log.seek(SeekFrom::End(0)).expect("log is broken");
-                serv.log.write_all(&buffer).expect("cannot write to buffer");
-
-                let action = request.action;
-
-                let args = request.args;
-
-                let response_bytes = process_action(action, args, &mutex);
-
-                let mut wclient = &serv.clients[i];
-
-                wclient
-                    .write_all(&response_bytes)
-                    .expect("error occurred while writing a message");
-
-                counter += 1;
-
-                if counter >= 100 {
-                    serv.backup_notifier
-                        .send(true)
-                        .expect("cannot send backup notification, probably side thread is dead");
+                    if counter >= 100 {
+                        serv.backup_notifier.send(true).expect(
+                            "cannot send backup notification, probably side thread is dead",
+                        );
+                    }
                 }
             }
         }
@@ -261,8 +262,7 @@ fn process_action(action: Action, args: Vec<String>, mutex: &Arc<Mutex<NikkaDb>>
     }
 }
 
-fn backup_control(database: &Arc<Mutex<NikkaDb>>, receiver: Receiver<bool>, mut backup_file: File) {
-    //println!("backup control");
+fn backup_control(database: &Arc<Mutex<NikkaDb>>, receiver: &Receiver<bool>, mut backup_file: File) {
     loop {
         match receiver.try_recv() {
             Ok(_) => {
@@ -270,9 +270,6 @@ fn backup_control(database: &Arc<Mutex<NikkaDb>>, receiver: Receiver<bool>, mut 
                 let hm = db.storage.as_bytes();
                 drop(db);
 
-                //println!("storage in backup {:?}", hm);
-
-                //println!("backup has been reached");
                 backup_file.set_len(0).expect("TODO: panic message");
                 backup_file
                     .seek(SeekFrom::Start(0))
@@ -283,7 +280,7 @@ fn backup_control(database: &Arc<Mutex<NikkaDb>>, receiver: Receiver<bool>, mut 
             Err(TryRecvError::Disconnected) => {
                 break;
             }
-            Err(TryRecvError::Empty) => thread::sleep(Duration::from_micros(100)),
+            Err(TryRecvError::Empty) => sleep(Duration::from_micros(100)),
         }
     }
 }

@@ -10,7 +10,6 @@ impl NikkaDb {
     pub fn add(&mut self, key: String, value: String) {
         self.trie.insert(&key);
         self.storage.insert(key, value);
-        //println!("{:?}", self.storage);
     }
 
     pub fn delete(&mut self, key: &str) {
