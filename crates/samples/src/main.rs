@@ -69,7 +69,7 @@ fn basic() {
 }
 
 fn transaction() {
-    std::thread::spawn(|| {
+    spawn(|| {
         let db = NikkaServer::with_port("6767");
         db.run();
     });

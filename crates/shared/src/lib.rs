@@ -3,7 +3,7 @@ use crate::ContentType::{NNone, NString};
 use std::collections::HashMap;
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ContentType {
     NNone = 0,
     NString = 1,
@@ -15,17 +15,18 @@ pub trait Serializable {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Request<T> {
+pub struct Request {
     pub size: u8,
     pub action: Action,
-    pub args: Vec<T>,
+    pub content_type: ContentType,
+    pub args: Vec<u8>,
 }
 
 #[derive(Debug)]
-pub struct Response<T> {
+pub struct Response {
     pub size: u8,
     pub content_type: ContentType,
-    pub content: Vec<T>,
+    pub content: Vec<u8>,
 }
 
 #[repr(u8)]
@@ -106,31 +107,28 @@ impl TryFrom<ContentType> for u8 {
     }
 }
 
-impl<T> Serializable for Request<T>
-where
-    T: Serializable,
-{
+impl Serializable for Request {
     fn as_bytes(&self) -> Vec<u8> {
         let mut size: u8 = 1;
         let mut packet = Vec::new();
         let op_code: u8 = self.action.try_into().expect("incorrect opcode");
         packet.push(op_code);
 
-        for arg in &self.args {
-            let byte_arg = arg.as_bytes();
-            let len = u8::try_from(byte_arg.len()).expect("cannot support that arg len yet");
-            size += u8::try_from(byte_arg.len()).expect("cannot support that arg len yet") + 1;
+        let content_type: u8 = self
+            .content_type
+            .try_into()
+            .expect("incorrect content type");
+        packet.push(content_type);
 
-            packet.push(len);
-            packet.extend_from_slice(&byte_arg);
-        }
-
-        packet.insert(0, size);
+        packet.push(self.args.len() as u8);
+        packet.extend_from_slice(&self.args);
+        size += self.args.len() as u8;
+        packet.insert(0, size + 1);
 
         packet
     }
 
-    fn from_bytes(packet: &[u8]) -> Request<T> {
+    fn from_bytes(packet: &[u8]) -> Request {
         let mut index = 0;
 
         let action = match Action::try_from(packet[index]) {
@@ -140,35 +138,28 @@ where
 
         index += 1;
 
-        let mut args: Vec<T> = Vec::new();
+        let content_type = match ContentType::try_from(packet[index]) {
+            Ok(content_type) => content_type,
+            Err(e) => panic!("{}", e),
+        };
 
-        while index < packet.len() {
-            let len = packet[index] as usize;
+        index += 2;
 
-            index += 1;
-
-            let arg = match packet.get(index..(index + len)) {
-                Some(arg) => T::from_bytes(arg),
-                None => panic!("broken packet"),
-            };
-
-            index += len;
-
-            args.push(arg);
-        }
+        let args = match packet.get(index..) {
+            Some(arg) => arg.to_vec(),
+            None => panic!("broken packet"),
+        };
 
         Request {
-            size: u8::try_from(index).expect("cannot support messages that big yet") - 1,
+            size: u8::try_from(index).expect("cannot support messages that big yet"),
             action,
+            content_type,
             args,
         }
     }
 }
 
-impl<T> Serializable for Response<T>
-where
-    T: Serializable,
-{
+impl Serializable for Response {
     fn as_bytes(&self) -> Vec<u8> {
         let mut size: u8 = 0;
         let mut packet = Vec::new();
@@ -177,21 +168,16 @@ where
 
         size += 1;
 
-        for arg in &self.content {
-            let byte_arg = arg.as_bytes();
-            let len = u8::try_from(byte_arg.len()).expect("cannot support that arg len yet");
-            size += u8::try_from(byte_arg.len()).expect("cannot support that arg len yet") + 1;
+        packet.extend_from_slice(&self.content);
 
-            packet.push(len);
-            packet.extend_from_slice(&byte_arg);
-        }
+        size += self.content.len() as u8;
 
         packet.insert(0, size);
 
         packet
     }
 
-    fn from_bytes(packet: &[u8]) -> Response<T> {
+    fn from_bytes(packet: &[u8]) -> Response {
         let mut index = 0;
 
         let content_type = match ContentType::try_from(packet[index]) {
@@ -210,22 +196,10 @@ where
 
         index += 1;
 
-        let mut content: Vec<T> = Vec::new();
-
-        while index < packet.len() {
-            let len = packet[index] as usize;
-
-            index += 1;
-
-            let arg = match packet.get(index..(index + len)) {
-                Some(arg) => T::from_bytes(arg),
-                None => panic!("broken packet"),
-            };
-
-            index += len;
-
-            content.push(arg);
-        }
+        let content = match packet.get(index..) {
+            Some(arg) => arg.to_vec(),
+            None => panic!("broken packet"),
+        };
 
         Response {
             size: u8::try_from(index).expect("response size is too big") - 1,
@@ -285,5 +259,35 @@ impl Serializable for HashMap<String, String> {
         }
 
         hm
+    }
+}
+
+impl Serializable for Vec<String> {
+    fn as_bytes(&self) -> Vec<u8> {
+        let mut v = Vec::new();
+
+        for content in self {
+            let size = content.len() as u8;
+            v.push(size);
+            v.extend_from_slice(content.as_bytes());
+        }
+
+        v
+    }
+
+    fn from_bytes(content: &[u8]) -> Self {
+        let mut v = Vec::new();
+        let mut index = 0;
+
+        while index < content.len() {
+            let size = content[index];
+            index += 1;
+            let string_bytes = &content[index..index + size as usize];
+            index += size as usize;
+            let string = String::from_bytes(string_bytes);
+            v.push(string)
+        }
+
+        v
     }
 }

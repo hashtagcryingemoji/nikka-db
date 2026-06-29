@@ -102,7 +102,6 @@ impl NikkaServer {
                     socket
                         .set_nonblocking(true)
                         .expect("cannot set socket to non blocking mode");
-                    //println!("client connected");
                     if tx.send(socket).is_err() {
                         break;
                     }
@@ -138,7 +137,6 @@ impl NikkaServer {
                     match reader.fill_buf() {
                         Ok(buffer) => {
                             if buffer.len() < 1 {
-                                println!("client disconnected");
                                 self.clients.remove(i);
                                 continue 'outer_loop;
                             }
@@ -146,7 +144,7 @@ impl NikkaServer {
                             let request_len = buffer[0];
 
                             if buffer.len() > request_len as usize {
-                                consumed_data_size = request_len + 1;
+                                consumed_data_size = request_len + 2;
                                 let data = &buffer[1..consumed_data_size as usize];
 
                                 data_vec.push(data.to_vec());
@@ -173,7 +171,7 @@ impl NikkaServer {
                 }
 
                 for bytes in &data_vec {
-                    let request = Request::<String>::from_bytes(&bytes);
+                    let request = Request::from_bytes(&bytes);
 
                     if self.clients[i].state == TRANSACTION
                         && (request.action != TDISCARD
@@ -217,12 +215,12 @@ fn backup_control(
                 let hm = db.storage.as_bytes();
                 drop(db);
 
-                backup_file.set_len(0).expect("TODO: panic message");
+                backup_file.set_len(0).expect("cannot access file");
                 backup_file
                     .seek(SeekFrom::Start(0))
-                    .expect("TODO: panic message");
-                backup_file.write_all(&hm).expect("TODO: panic message");
-                backup_file.flush().expect("TODO: panic message");
+                    .expect("cannot access file");
+                backup_file.write_all(&hm).expect("cannot access file");
+                backup_file.flush().expect("cannot access file");
             }
             Err(TryRecvError::Disconnected) => {
                 break;

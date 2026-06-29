@@ -27,3 +27,16 @@ fn empty_map_serialization_test() {
 
     assert_eq!(hm, hash_map)
 }
+
+#[test]
+fn string_vec_deser_test() {
+    let v = vec![
+        "alice".to_string(),
+        "bob".to_string(),
+        "charlie".to_string(),
+    ];
+
+    let dv = Vec::from_bytes(&v.as_bytes());
+
+    assert_eq!(v, dv);
+}

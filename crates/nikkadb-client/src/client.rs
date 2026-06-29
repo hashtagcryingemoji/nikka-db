@@ -27,11 +27,12 @@ impl NikkaClient {
     }
 
     pub fn set_string(&mut self, key: &str, value: &str) {
-        let args = vec![key.to_string(), value.to_string()];
+        let args = vec![key.to_string(), value.to_string()].as_bytes();
 
         let request = Request {
-            size: 1 + (args[0].len() + args[1].len()) as u8,
+            size: 1 + args.len() as u8,
             action: Action::CREATE,
+            content_type: NString,
             args,
         };
 
@@ -43,11 +44,14 @@ impl NikkaClient {
 
     pub fn get(&mut self, key: &str) -> Option<String> {
         let key = key.to_string();
-        let args = vec![key];
+        let mut args = Vec::new();
+        args.push(key.len() as u8);
+        args.extend_from_slice(key.as_bytes());
 
         let request = Request {
-            size: 1 + args[0].len() as u8,
+            size: 1 + args.len() as u8,
             action: Action::GET,
+            content_type: NString,
             args,
         };
 
@@ -68,21 +72,24 @@ impl NikkaClient {
             .read_exact(&mut buffer)
             .expect("error occurred while reading a packet");
 
-        let response: Response<String> = Response::from_bytes(&buffer);
+        let response: Response = Response::from_bytes(&buffer);
 
         match response.content_type {
             NNone => None,
-            NString => Some(response.content[0].clone()),
+            NString => Some(Vec::from_bytes(&response.content)[0].clone()),
         }
     }
 
     pub fn remove(&mut self, key: &str) {
         let key = key.to_string();
-        let args = vec![key];
+        let mut args = Vec::new();
+        args.push(key.len() as u8);
+        args.extend_from_slice(key.as_bytes());
 
         let request = Request {
-            size: 1 + args[0].len() as u8,
+            size: 1 + args.len() as u8,
             action: Action::DELETE,
+            content_type: NString,
             args,
         };
 
@@ -95,11 +102,13 @@ impl NikkaClient {
 
     pub fn get_regex(&mut self, regex: &str) -> Vec<String> {
         let regex = regex.to_string();
-        let args = vec![regex];
+        let mut args = Vec::new();
+        args.extend_from_slice(regex.as_bytes());
 
         let request = Request {
-            size: (1 + args[0].len()) as u8,
+            size: (1 + args.len()) as u8,
             action: Action::REGEX,
+            content_type: NString,
             args,
         };
 
@@ -121,15 +130,16 @@ impl NikkaClient {
             .read_exact(&mut buffer)
             .expect("error occurred while writing a message");
 
-        let response: Response<String> = Response::from_bytes(&buffer);
+        let response: Response = Response::from_bytes(&buffer);
 
-        response.content
+        Vec::from_bytes(&response.content)
     }
 
     pub fn begin_transaction(&mut self) {
-        let request: Request<String> = Request {
+        let request: Request = Request {
             size: 1,
             action: Action::TSTART,
+            content_type: NNone,
             args: Vec::new(),
         };
 
@@ -141,9 +151,10 @@ impl NikkaClient {
     }
 
     pub fn send_transaction(&mut self) {
-        let request: Request<String> = Request {
+        let request: Request = Request {
             size: 1,
             action: Action::TEND,
+            content_type: NNone,
             args: Vec::new(),
         };
 
@@ -155,9 +166,10 @@ impl NikkaClient {
     }
 
     pub fn erase_transaction(&mut self) {
-        let request: Request<String> = Request {
+        let request: Request = Request {
             size: 1,
             action: Action::TERASE,
+            content_type: NNone,
             args: Vec::new(),
         };
 
@@ -169,9 +181,10 @@ impl NikkaClient {
     }
 
     pub fn abort_transaction(&mut self) {
-        let request: Request<String> = Request {
+        let request: Request = Request {
             size: 1,
             action: Action::TDISCARD,
+            content_type: NNone,
             args: Vec::new(),
         };
 

@@ -18,7 +18,7 @@ pub mod utils;
 struct Client {
     socket: TcpStream,
     state: ClientState,
-    queue: VecDeque<Request<String>>,
+    queue: VecDeque<Request>,
 }
 
 #[derive(PartialEq)]
@@ -28,13 +28,13 @@ enum ClientState {
 }
 
 impl Client {
-    fn process_action(&mut self, request: Request<String>, mutex: &Arc<Mutex<NikkaDb>>) -> Vec<u8> {
+    fn process_action(&mut self, request: Request, mutex: &Arc<Mutex<NikkaDb>>) -> Vec<u8> {
         let action = request.action;
         let args = request.args;
 
         match action {
             GET => {
-                let key = &args[0];
+                let key = &Vec::from_bytes(&args)[0];
                 let database = mutex.lock().unwrap();
                 let value = database.get(key);
                 drop(database);
@@ -45,7 +45,7 @@ impl Client {
                         Response {
                             size: 1 + v[0].len() as u8,
                             content_type: NString,
-                            content: v,
+                            content: v.as_bytes(),
                         }
                     }
                     None => Response {
@@ -60,7 +60,7 @@ impl Client {
                 response_byte
             }
             CREATE => {
-                let mut args_iter = args.into_iter();
+                let mut args_iter = Vec::from_bytes(&args).into_iter();
                 if let (Some(key), Some(value)) = (args_iter.next(), args_iter.next()) {
                     let mut database = mutex.lock().unwrap();
                     database.add(key, value);
@@ -72,7 +72,7 @@ impl Client {
                 Vec::new()
             }
             DELETE => {
-                let key = &args[0];
+                let key = &Vec::from_bytes(&args)[0];
                 let mut database = mutex.lock().unwrap();
                 database.delete(key);
                 drop(database);
@@ -80,17 +80,15 @@ impl Client {
                 Vec::new()
             }
             REGEX => {
-                let regex = &args[0];
+                let regex = &Vec::from_bytes(&args)[0];
 
                 let database = mutex.lock().unwrap();
-                let content = database.find_regex(regex);
+                let content = database.find_regex(regex).as_bytes();
                 drop(database);
 
                 let mut size = 1;
 
-                for piece in &content {
-                    size += piece.len() as u8;
-                }
+                size += content.len() as u8;
 
                 let response = Response {
                     size,
@@ -137,16 +135,13 @@ impl Client {
     }
 }
 
-fn process_in_transaction(
-    request: Request<String>,
-    snapshot: &mut HashMap<String, String>,
-) -> Vec<u8> {
+fn process_in_transaction(request: Request, snapshot: &mut HashMap<String, String>) -> Vec<u8> {
     let action = request.action;
     let args = request.args;
 
     match action {
         CREATE => {
-            let mut args_iter = args.into_iter();
+            let mut args_iter = Vec::from_bytes(&args).into_iter();
             if let (Some(key), Some(value)) = (args_iter.next(), args_iter.next()) {
                 snapshot.insert(key, value);
             } else {
@@ -156,7 +151,7 @@ fn process_in_transaction(
             Vec::new()
         }
         DELETE => {
-            let key = &args[0];
+            let key = &Vec::from_bytes(&args)[0];
             snapshot.remove(key);
 
             Vec::new()
