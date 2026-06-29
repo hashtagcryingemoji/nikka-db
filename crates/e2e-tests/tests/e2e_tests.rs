@@ -83,3 +83,24 @@ fn transaction_test() {
     assert_eq!(client.get("key1"), None);
     assert_eq!(client.get("key2").unwrap(), "value".to_string());
 }
+
+#[test]
+fn regex_test() {
+    spawn(|| {
+        let db = NikkaServer::with_port("5433");
+        db.run()
+    });
+
+    sleep(Duration::from_millis(100));
+
+    let mut db = NikkaClient::with_port("5433");
+
+    db.set_string("alice:bob", "bob");
+    db.set_string("bob:alice", "alice");
+    let mut query = db.get_regex("*:*");
+    let mut real = vec!["alice:bob".to_string(), "bob:alice".to_string()];
+    query.sort();
+    real.sort();
+
+    assert_eq!(query, real);
+}

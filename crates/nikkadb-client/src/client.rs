@@ -103,6 +103,7 @@ impl NikkaClient {
     pub fn get_regex(&mut self, regex: &str) -> Vec<String> {
         let regex = regex.to_string();
         let mut args = Vec::new();
+        args.push(regex.len() as u8);
         args.extend_from_slice(regex.as_bytes());
 
         let request = Request {
