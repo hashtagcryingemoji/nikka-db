@@ -177,7 +177,6 @@ pub fn form_packet<T>(content: T) -> Vec<u8>
 where
     T: Serializable + std::fmt::Debug,
 {
-    println!("{:?}", content);
     let mut packet = Vec::new();
     packet.extend_from_slice(&content.as_bytes());
     packet.insert(0, packet.len() as u8);

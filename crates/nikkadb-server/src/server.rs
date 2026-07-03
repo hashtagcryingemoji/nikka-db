@@ -24,7 +24,7 @@ use std::time::Duration;
 pub struct NikkaServer {
     database: NikkaDb,
     clients: Vec<Client>,
-    tcp_listener: TcpListener,
+    pub tcp_listener: TcpListener,
     backup_notifier: Sender<bool>,
     backup_receiver: Receiver<bool>,
     log: File,
