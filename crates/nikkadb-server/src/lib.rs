@@ -1,8 +1,10 @@
 use crate::database::NikkaDb;
 use crate::ClientState::{DEFAULT, TRANSACTION};
+use shared::protocol::Response::{ContentResponse, Success};
+use shared::protocol::{extract_key_value, Request, Response};
 use shared::Action::{CREATE, DELETE, GET, REGEX, TDISCARD, TEND, TERASE, TSTART};
-use shared::ContentType::{NNone, NString};
-use shared::{Request, Response, Serializable};
+use shared::ContentType::{KeyValue, NInt, NNone, NString};
+use shared::{ContentType, Serializable};
 use std::collections::{HashMap, VecDeque};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
@@ -11,9 +13,10 @@ mod database;
 pub mod server;
 #[cfg(not(feature = "utils_for_test"))]
 pub(crate) mod utils;
-
 #[cfg(feature = "utils_for_test")]
 pub mod utils;
+
+type Value = (ContentType, Vec<u8>);
 
 struct Client {
     socket: TcpStream,
@@ -28,7 +31,7 @@ enum ClientState {
 }
 
 impl Client {
-    fn process_action(&mut self, request: Request, mutex: &Arc<Mutex<NikkaDb>>) -> Vec<u8> {
+    fn process_action(&mut self, request: Request, mutex: &Arc<Mutex<NikkaDb>>) -> Response {
         let action = request.action;
         let args = request.args;
 
@@ -36,40 +39,53 @@ impl Client {
             GET => {
                 let key = &Vec::from_bytes(&args)[0];
                 let database = mutex.lock().unwrap();
-                let value = database.get(key);
+                let response = match request.content_type {
+                    NString => match database.get::<String>(key) {
+                        Some(value) => {
+                            let v = vec![value];
+                            ContentResponse(NString, v.as_bytes())
+                        }
+                        None => ContentResponse(NNone, vec![]),
+                    },
+                    NInt => match database.get::<u8>(key) {
+                        Some(int) => {
+                            let v = vec![int];
+                            ContentResponse(NInt, v)
+                        }
+
+                        None => ContentResponse(NNone, vec![]),
+                    },
+                    _ => panic!("logic error"),
+                };
                 drop(database);
 
-                let response = match value {
-                    Some(value) => {
-                        let v = vec![value];
-                        Response {
-                            size: 1 + v[0].len() as u8,
-                            content_type: NString,
-                            content: v.as_bytes(),
-                        }
-                    }
-                    None => Response {
-                        size: 1,
-                        content_type: NNone,
-                        content: Vec::new(),
-                    },
-                };
-
-                let response_byte = response.as_bytes();
-
-                response_byte
+                response
             }
             CREATE => {
-                let mut args_iter = Vec::from_bytes(&args).into_iter();
-                if let (Some(key), Some(value)) = (args_iter.next(), args_iter.next()) {
-                    let mut database = mutex.lock().unwrap();
-                    database.add(key, value);
-                    drop(database);
-                } else {
-                    panic!("incorrect request");
-                }
+                let content_type = request.content_type;
 
-                Vec::new()
+                let (k, v) = match content_type {
+                    KeyValue(value_type) => match *value_type {
+                        NString => {
+                            let (k, v) = extract_key_value::<String>(&args);
+                            let value_bytes = v.as_bytes();
+                            (k, (NString, value_bytes.to_vec()))
+                        }
+                        NInt => {
+                            let (k, v) = extract_key_value::<u8>(&args);
+                            let value_bytes = v.as_bytes();
+                            (k, (NInt, value_bytes.to_vec()))
+                        }
+                        _ => panic!("logic error"),
+                    },
+
+                    _ => panic!("logic error"),
+                };
+                let mut database = mutex.lock().unwrap();
+                database.add(k, v);
+                drop(database);
+
+                Success
             }
             DELETE => {
                 let key = &Vec::from_bytes(&args)[0];
@@ -77,32 +93,20 @@ impl Client {
                 database.delete(key);
                 drop(database);
 
-                Vec::new()
+                Success
             }
             REGEX => {
                 let regex = &Vec::from_bytes(&args)[0];
 
                 let database = mutex.lock().unwrap();
-                let content = database.find_regex(regex).as_bytes();
+                let _content = database.find_regex(regex).as_bytes();
                 drop(database);
 
-                let mut size = 1;
-
-                size += content.len() as u8;
-
-                let response = Response {
-                    size,
-                    content_type: NString,
-                    content,
-                };
-
-                let response_byte = response.as_bytes();
-
-                response_byte
+                ContentResponse(NNone, vec![])
             }
             TSTART => {
                 self.state = TRANSACTION;
-                Vec::new()
+                Success
             }
             TEND => {
                 self.state = DEFAULT;
@@ -110,17 +114,17 @@ impl Client {
             }
             TERASE => {
                 self.queue.clear();
-                Vec::new()
+                Success
             }
             TDISCARD => {
                 self.state = DEFAULT;
                 self.queue.clear();
-                Vec::new()
+                Success
             }
         }
     }
 
-    fn process_transaction(&mut self, mutex: &Arc<Mutex<NikkaDb>>) -> Vec<u8> {
+    fn process_transaction(&mut self, mutex: &Arc<Mutex<NikkaDb>>) -> Response {
         let mut database = mutex.lock().unwrap();
         let mut snapshot = database.storage.clone();
 
@@ -131,11 +135,11 @@ impl Client {
 
         database.storage = snapshot;
 
-        Vec::new()
+        Success
     }
 }
 
-fn process_in_transaction(request: Request, snapshot: &mut HashMap<String, String>) -> Vec<u8> {
+fn process_in_transaction(request: Request, snapshot: &mut HashMap<String, Value>) -> Response {
     let action = request.action;
     let args = request.args;
 
@@ -143,18 +147,18 @@ fn process_in_transaction(request: Request, snapshot: &mut HashMap<String, Strin
         CREATE => {
             let mut args_iter = Vec::from_bytes(&args).into_iter();
             if let (Some(key), Some(value)) = (args_iter.next(), args_iter.next()) {
-                snapshot.insert(key, value);
+                snapshot.insert(key, (NString, value.as_bytes().to_vec()));
             } else {
                 panic!("incorrect request");
             }
 
-            Vec::new()
+            Success
         }
         DELETE => {
             let key = &Vec::from_bytes(&args)[0];
             snapshot.remove(key);
 
-            Vec::new()
+            Success
         }
         _ => panic!("logic error"),
     }

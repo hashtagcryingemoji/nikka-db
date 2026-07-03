@@ -2,10 +2,12 @@ use crate::database::NikkaDb;
 use crate::utils::trie::TrieNode;
 use crate::Client;
 use crate::ClientState::{DEFAULT, TRANSACTION};
+use shared::protocol::Response::Success;
+use shared::protocol::{form_packet, Request};
 use shared::Action::TERASE;
 use shared::{
     Action::{TDISCARD, TEND},
-    Request, Serializable,
+    Serializable,
 };
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -144,7 +146,7 @@ impl NikkaServer {
                             let request_len = buffer[0];
 
                             if buffer.len() > request_len as usize {
-                                consumed_data_size = request_len + 2;
+                                consumed_data_size = request_len + 1;
                                 let data = &buffer[1..consumed_data_size as usize];
 
                                 data_vec.push(data.to_vec());
@@ -179,10 +181,18 @@ impl NikkaServer {
                             && request.action != TERASE)
                     {
                         self.clients[i].queue.push_back(request);
+                        let mut wclient = &self.clients[i].socket;
+                        let response_bytes = form_packet(Success);
+                        wclient
+                            .write_all(&response_bytes)
+                            .expect("error occurred while writing a message");
                         continue;
                     }
 
-                    let response_bytes = self.clients[i].process_action(request, &mutex);
+                    let response_bytes =
+                        form_packet(self.clients[i].process_action(request, &mutex));
+
+                    // add response bytes len to form a readable packet
 
                     let mut wclient = &self.clients[i].socket;
 

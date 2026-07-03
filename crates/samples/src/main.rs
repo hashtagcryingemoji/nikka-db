@@ -3,12 +3,13 @@ use nikkadb_server::server::NikkaServer;
 use std::thread::spawn;
 
 fn main() {
-    transaction()
+    basic();
+    transaction();
 }
 
 fn basic() {
     spawn(|| {
-        let db = NikkaServer::with_port("5435");
+        let db = NikkaServer::with_port("5434");
         db.run();
     });
 
@@ -24,7 +25,7 @@ fn basic() {
         println!(
             "{} - {}",
             query,
-            client.get(&query).unwrap_or("undefined".to_string())
+            client.get_string(&query).unwrap_or("undefined".to_string())
         );
     }
 
@@ -33,7 +34,7 @@ fn basic() {
         println!(
             "{} - {}",
             query,
-            client.get(&query).unwrap_or("undefined".to_string())
+            client.get_string(&query).unwrap_or("undefined".to_string())
         );
     }
 
@@ -42,7 +43,7 @@ fn basic() {
         println!(
             "{} - {}",
             query,
-            client.get(&query).unwrap_or("undefined".to_string())
+            client.get_string(&query).unwrap_or("undefined".to_string())
         );
     }
 
@@ -54,7 +55,7 @@ fn basic() {
         println!(
             "{} - {}",
             query,
-            client.get(&query).unwrap_or("undefined".to_string())
+            client.get_string(&query).unwrap_or("undefined".to_string())
         );
     }
 
@@ -63,7 +64,7 @@ fn basic() {
         println!(
             "{} - {}",
             query,
-            client.get(&query).unwrap_or("undefined".to_string())
+            client.get_string(&query).unwrap_or("undefined".to_string())
         );
     }
 }
@@ -84,6 +85,8 @@ fn transaction() {
 
     println!(
         "{}",
-        client.get("golang").unwrap_or("undefined".to_string())
+        client
+            .get_string("golang")
+            .unwrap_or("undefined".to_string())
     );
 }
