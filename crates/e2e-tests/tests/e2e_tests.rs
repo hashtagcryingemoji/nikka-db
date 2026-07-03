@@ -69,12 +69,14 @@ fn element_delete_test() {
 
 #[test]
 fn transaction_test() {
-    spawn(|| {
-        let db = NikkaServer::with_port("6766");
-        db.run();
-    });
+    let db = NikkaServer::with_port("0");
+    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
 
-    let mut client = NikkaClient::with_port("6766");
+    spawn(|| db.run());
+
+    sleep(Duration::from_millis(100));
+
+    let mut client = NikkaClient::with_port(&port);
 
     client.begin_transaction();
     client.set_string("key1", "value");
