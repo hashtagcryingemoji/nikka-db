@@ -9,9 +9,7 @@ fn element_insertion_test() {
     let db = NikkaServer::with_port("0");
     let port = db.tcp_listener.local_addr().unwrap().port().to_string();
 
-    spawn(|| {
-        db.run()
-    });
+    spawn(|| db.run());
 
     sleep(Duration::from_millis(100));
 
@@ -29,9 +27,7 @@ fn backup_test() {
     let db = NikkaServer::with_port("0");
     let port = db.tcp_listener.local_addr().unwrap().port().to_string();
 
-    spawn(|| {
-        db.run()
-    });
+    spawn(|| db.run());
 
     sleep(Duration::from_millis(100));
 
@@ -60,9 +56,7 @@ fn element_delete_test() {
     let db = NikkaServer::with_port("0");
     let port = db.tcp_listener.local_addr().unwrap().port().to_string();
 
-    spawn(|| {
-        db.run()
-    });
+    spawn(|| db.run());
 
     sleep(Duration::from_millis(100));
 
