@@ -9,7 +9,7 @@ use shared::{
     Action::{TDISCARD, TEND},
     Serializable,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::ErrorKind::WouldBlock;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
@@ -70,7 +70,7 @@ impl NikkaServer {
         let storage = HashMap::from_bytes(&storage_backup_raw);
         let mut trie = TrieNode::new();
 
-        for (k, _) in &storage {
+        for k in storage.keys() {
             trie.insert(k);
         }
 
@@ -79,7 +79,7 @@ impl NikkaServer {
         NikkaServer {
             database,
             clients: Vec::new(),
-            tcp_listener: TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap(),
+            tcp_listener: TcpListener::bind(format!("127.0.0.1:{port}")).unwrap(),
             backup_notifier,
             backup_receiver,
             _log: log,
@@ -120,7 +120,7 @@ impl NikkaServer {
                 let client = Client {
                     socket: new_socket,
                     state: DEFAULT,
-                    queue: Default::default(),
+                    queue: VecDeque::default(),
                 };
 
                 self.clients.push(client);
@@ -138,7 +138,7 @@ impl NikkaServer {
                     let mut consumed_data_size = 0;
                     match reader.fill_buf() {
                         Ok(buffer) => {
-                            if buffer.len() < 1 {
+                            if buffer.is_empty() {
                                 self.clients.remove(i);
                                 continue 'outer_loop;
                             }
@@ -159,13 +159,12 @@ impl NikkaServer {
                             if data_vec.is_empty() {
                                 sleep(Duration::from_millis(100));
                                 continue 'outer_loop;
-                            } else {
-                                break;
                             }
+                            break;
                         }
 
                         Err(_) => panic!(),
-                    };
+                    }
 
                     if consumed_data_size > 0 {
                         reader.consume(consumed_data_size as usize);
@@ -173,7 +172,7 @@ impl NikkaServer {
                 }
 
                 for bytes in &data_vec {
-                    let request = Request::from_bytes(&bytes);
+                    let request = Request::from_bytes(bytes);
 
                     if self.clients[i].state == TRANSACTION
                         && (request.action != TDISCARD
@@ -182,7 +181,7 @@ impl NikkaServer {
                     {
                         self.clients[i].queue.push_back(request);
                         let mut wclient = &self.clients[i].socket;
-                        let response_bytes = form_packet(Success);
+                        let response_bytes = form_packet(&Success);
                         wclient
                             .write_all(&response_bytes)
                             .expect("error occurred while writing a message");
@@ -190,7 +189,7 @@ impl NikkaServer {
                     }
 
                     let response_bytes =
-                        form_packet(self.clients[i].process_action(request, &mutex));
+                        form_packet(&self.clients[i].process_action(request, &mutex));
 
                     // add response bytes len to form a readable packet
 

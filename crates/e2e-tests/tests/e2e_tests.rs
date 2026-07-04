@@ -1,5 +1,6 @@
 use nikkadb_client::client::NikkaClient;
-use nikkadb_client::NikkaType::{NikkaInt, NikkaString};
+use nikkadb_client::NikkaType::{TypeInt, TypeString};
+use nikkadb_client::NikkaTypeWrapper;
 use nikkadb_server::server::NikkaServer;
 use std::thread::sleep;
 use std::thread::spawn;
@@ -38,6 +39,10 @@ fn backup_test() {
         db.set_string("key", "value");
     }
 
+    db.create_deque("numbers", TypeInt);
+    db.push_first("numbers", NikkaTypeWrapper::NikkaInt(1));
+    db.push_last("numbers", NikkaTypeWrapper::NikkaInt(2));
+
     sleep(Duration::from_secs(1));
 
     spawn(|| {
@@ -50,6 +55,7 @@ fn backup_test() {
     let mut db = NikkaClient::with_port("2220");
 
     assert_eq!(db.get_string("key"), Some("value".to_string()));
+    assert_eq!(db.pop_first("numbers"), Some(1));
 }
 
 #[test]
@@ -140,16 +146,16 @@ fn deque_test() {
 
     let mut client = NikkaClient::with_port(&port);
 
-    client.create_deque("numbers", NikkaInt);
-    client.push_first("numbers", 1, NikkaInt);
-    client.push_last("numbers", 2, NikkaInt);
+    client.create_deque("numbers", TypeInt);
+    client.push_first("numbers", NikkaTypeWrapper::NikkaInt(1));
+    client.push_last("numbers", NikkaTypeWrapper::NikkaInt(2));
     assert_eq!(client.pop_first("numbers").unwrap_or(0), 1);
     assert_eq!(client.pop_last("numbers").unwrap_or(0), 2);
     assert_eq!(client.pop_last("numbers").unwrap_or(0), 0);
 
-    client.create_deque("strings", NikkaString);
-    client.push_first("strings", "one".to_string(), NikkaString);
-    client.push_last("strings", "two".to_string(), NikkaString);
+    client.create_deque("strings", TypeString);
+    client.push_first("strings", NikkaTypeWrapper::NikkaString("one"));
+    client.push_last("strings", NikkaTypeWrapper::NikkaString("two"));
     assert_eq!(
         client.pop_first("strings").unwrap_or("0".to_string()),
         "one".to_string()

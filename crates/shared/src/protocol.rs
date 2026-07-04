@@ -33,12 +33,12 @@ impl Serializable for Response {
                 packet.push(0);
                 packet
                     .push(u8::try_from(content_type.to_owned()).expect("broken response instance"));
-                packet.push(content.len() as u8);
+                packet.push(u8::try_from(content.len()).expect("content is too big to store"));
                 packet.extend_from_slice(content);
             }
             Error(message) => {
                 packet.push(1);
-                packet.push(message.len() as u8);
+                packet.push(u8::try_from(message.len()).expect("message is too long to store"));
                 packet.extend_from_slice(message.as_bytes());
             }
         }
@@ -67,7 +67,7 @@ impl Serializable for Response {
     }
 }
 
-impl Serializable for HashMap<String, Value> {
+impl<S: std::hash::BuildHasher + Default> Serializable for HashMap<String, Value, S> {
     fn to_bytes(&self) -> Vec<u8> {
         let mut byte_repr: Vec<u8> = Vec::new();
 
@@ -77,10 +77,13 @@ impl Serializable for HashMap<String, Value> {
             byte_repr.push(k_len);
             byte_repr.extend_from_slice(k_bytes);
 
-            let v_len = u8::try_from(v.1.len()).expect("cannot support size that big yet");
-            byte_repr.push(v_len);
             let content: u8 = v.0.clone().try_into().expect("broken packet");
             byte_repr.push(content);
+            if let NDeque(nested_type) = v.0.clone() {
+                byte_repr.push(u8::try_from(*nested_type).expect("broken packet"));
+            }
+            let v_len = u8::try_from(v.1.len()).expect("cannot support size that big yet");
+            byte_repr.push(v_len);
             byte_repr.extend_from_slice(&v.1);
         }
         byte_repr
@@ -88,17 +91,24 @@ impl Serializable for HashMap<String, Value> {
 
     fn from_bytes(content: &[u8]) -> Self {
         let mut index = 0;
-        let mut hm = HashMap::new();
+        let mut hm = HashMap::default();
 
         while index < content.len() {
             let size = content[index];
+            println!("size: {size}");
             index += 1;
             let k = &content[index..index + size as usize];
             index += size as usize;
 
-            let size = content[index];
+            let mut content_type = ContentType::try_from(content[index]).expect("broken packet");
             index += 1;
-            let content_type = ContentType::try_from(content[index]).expect("broken packet");
+            if let NDeque(_) = content_type {
+                let nested_content_type =
+                    ContentType::try_from(content[index]).expect("broken packet");
+                content_type = NDeque(Box::new(nested_content_type));
+                index += 1;
+            }
+            let size = content[index];
             index += 1;
             let v = &content[index..index + size as usize];
             index += size as usize;
@@ -125,20 +135,15 @@ impl Serializable for Request {
             .expect("incorrect content type");
         packet.push(content_type);
 
-        match self.content_type.clone() {
-            KeyValue(value_type) => {
-                packet.push(u8::try_from(*value_type.clone()).expect("broken packet"));
-                match *value_type {
-                    ContentType::NDeque(content_type) => {
-                        packet.push(u8::try_from(*content_type).expect("broken packet"))
-                    }
-                    _ => {}
-                }
+        if let KeyValue(value_type) = self.content_type.clone() {
+            packet.push(u8::try_from(*value_type.clone()).expect("broken packet"));
+
+            if let NDeque(content_type) = *value_type {
+                packet.push(u8::try_from(*content_type).expect("broken packet"));
             }
-            _ => {}
         }
 
-        packet.push(self.args.len() as u8);
+        packet.push(u8::try_from(self.args.len()).expect("arg is too big to store"));
         packet.extend_from_slice(&self.args);
 
         packet
@@ -191,13 +196,13 @@ impl Serializable for Request {
     }
 }
 
-pub fn form_packet<T>(content: T) -> Vec<u8>
+pub fn form_packet<T>(content: &T) -> Vec<u8>
 where
     T: Serializable + std::fmt::Debug,
 {
     let mut packet = Vec::new();
     packet.extend_from_slice(&content.to_bytes());
-    packet.insert(0, packet.len() as u8);
+    packet.insert(0, u8::try_from(packet.len()).expect("paket is too big"));
     packet
 }
 
@@ -224,7 +229,7 @@ where
     let mut index = 0;
     let k_size = content[index] as usize;
     index += 1;
-    let key = String::from_bytes(&content[index..k_size + 1]);
+    let key = String::from_bytes(&content[index..=k_size]);
     index = k_size + 1;
     let v_size = content[index] as usize;
     index += 1;

@@ -7,6 +7,11 @@ pub struct NikkaClient {
 }
 
 pub enum NikkaType {
-    NikkaInt,
-    NikkaString,
+    TypeInt,
+    TypeString,
+}
+
+pub enum NikkaTypeWrapper<'a> {
+    NikkaInt(u8),
+    NikkaString(&'a str),
 }

@@ -24,19 +24,16 @@ impl TrieNode {
         for i in &chars {
             let found_node = cn.children.iter().position(|j| &j.char == i);
 
-            match found_node {
-                Some(index) => {
-                    cn = &mut cn.children[index];
-                }
-                None => {
-                    cn.children.push(TrieNode {
-                        children: Vec::new(),
-                        char: *i,
-                        is_terminal: false,
-                    });
+            if let Some(index) = found_node {
+                cn = &mut cn.children[index];
+            } else {
+                cn.children.push(TrieNode {
+                    children: Vec::new(),
+                    char: *i,
+                    is_terminal: false,
+                });
 
-                    cn = cn.children.last_mut().expect("logic error");
-                }
+                cn = cn.children.last_mut().expect("logic error");
             }
         }
 
@@ -154,18 +151,17 @@ impl TrieNode {
         let chars: Vec<char> = word.chars().collect();
         let mut cn = self;
 
-        'outer: for i in &chars {
+        for i in &chars {
             let found_node = cn.children.iter().position(|j| &j.char == i);
 
             match found_node {
                 Some(index) => {
                     cn = &mut cn.children[index];
-                    continue 'outer;
                 }
                 None => {
                     return;
                 }
-            };
+            }
         }
 
         cn.is_terminal = false;

@@ -5,7 +5,7 @@ use shared::{
 };
 
 pub use crate::NikkaClient;
-use crate::NikkaType;
+use crate::{NikkaType, NikkaTypeWrapper};
 use shared::protocol::Response::{ContentResponse, Error, Success};
 use shared::protocol::{form_packet, form_response, Request};
 use shared::Action::{POPF, POPL};
@@ -37,7 +37,7 @@ impl NikkaClient {
             args,
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
         self.connection
             .write_all(&content)
             .expect("error occurred while writing a message");
@@ -54,7 +54,7 @@ impl NikkaClient {
     pub fn get_string(&mut self, key: &str) -> Option<String> {
         let key = key.to_string();
         let mut args = Vec::new();
-        args.push(key.len() as u8);
+        args.push(u8::try_from(key.len()).expect("key name is too big"));
         args.extend_from_slice(key.as_bytes());
 
         let request = Request {
@@ -63,7 +63,7 @@ impl NikkaClient {
             args,
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -92,7 +92,7 @@ impl NikkaClient {
             args,
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
         self.connection
             .write_all(&content)
             .expect("error occurred while writing a message");
@@ -109,7 +109,7 @@ impl NikkaClient {
     pub fn get_int(&mut self, key: &str) -> Option<u8> {
         let key = key.to_string();
         let mut args = Vec::new();
-        args.push(key.len() as u8);
+        args.push(u8::try_from(key.len()).expect("key name is too big"));
         args.extend_from_slice(key.as_bytes());
 
         let request = Request {
@@ -118,7 +118,7 @@ impl NikkaClient {
             args,
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -139,7 +139,7 @@ impl NikkaClient {
     pub fn remove(&mut self, key: &str) -> Result<(), String> {
         let key = key.to_string();
         let mut args = Vec::new();
-        args.push(key.len() as u8);
+        args.push(u8::try_from(key.len()).expect("key is too big to store"));
         args.extend_from_slice(key.as_bytes());
 
         let request = Request {
@@ -148,7 +148,7 @@ impl NikkaClient {
             args,
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -175,7 +175,7 @@ impl NikkaClient {
             args,
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -201,7 +201,7 @@ impl NikkaClient {
             args: Vec::new(),
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -217,7 +217,7 @@ impl NikkaClient {
             args: Vec::new(),
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -233,7 +233,7 @@ impl NikkaClient {
             args: Vec::new(),
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -249,7 +249,7 @@ impl NikkaClient {
             args: Vec::new(),
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -265,7 +265,7 @@ impl NikkaClient {
             args: Vec::new(),
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -276,12 +276,12 @@ impl NikkaClient {
 
     pub fn create_deque(&mut self, key: &str, deque_type: NikkaType) -> Result<(), String> {
         let mut args = Vec::with_capacity(1 + key.len());
-        args.push(key.len() as u8);
+        args.push(u8::try_from(key.len()).expect("deque name is too long"));
         args.extend_from_slice(key.as_bytes());
 
         let true_deque_type = match deque_type {
-            NikkaType::NikkaInt => NInt,
-            NikkaType::NikkaString => NString,
+            NikkaType::TypeInt => NInt,
+            NikkaType::TypeString => NString,
         };
 
         let request: Request = Request {
@@ -290,7 +290,7 @@ impl NikkaClient {
             args,
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -305,18 +305,10 @@ impl NikkaClient {
         }
     }
 
-    pub fn push_first<T>(
-        &mut self,
-        key: &str,
-        value: T,
-        value_type: NikkaType,
-    ) -> Result<(), String>
-    where
-        T: Serializable,
-    {
-        let request = match value_type {
-            NikkaType::NikkaInt => {
-                let value_bytes = value.to_bytes();
+    pub fn push_first(&mut self, key: &str, value: NikkaTypeWrapper) -> Result<(), String> {
+        let request = match value {
+            NikkaTypeWrapper::NikkaInt(int) => {
+                let value_bytes = int.to_bytes();
 
                 let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
                 args.push(key.len() as u8);
@@ -332,8 +324,9 @@ impl NikkaClient {
                 }
             }
 
-            NikkaType::NikkaString => {
-                let value_bytes = value.to_bytes();
+            NikkaTypeWrapper::NikkaString(str) => {
+                let string = str.to_string();
+                let value_bytes = string.to_bytes();
 
                 let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
                 args.push(key.len() as u8);
@@ -349,7 +342,7 @@ impl NikkaClient {
             }
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -374,7 +367,7 @@ impl NikkaClient {
             args: key.as_bytes().to_vec(),
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -391,13 +384,10 @@ impl NikkaClient {
         }
     }
 
-    pub fn push_last<T>(&mut self, key: &str, value: T, value_type: NikkaType) -> Result<(), String>
-    where
-        T: Serializable,
-    {
-        let request = match value_type {
-            NikkaType::NikkaInt => {
-                let value_bytes = value.to_bytes();
+    pub fn push_last(&mut self, key: &str, value: NikkaTypeWrapper) -> Result<(), String> {
+        let request = match value {
+            NikkaTypeWrapper::NikkaInt(int) => {
+                let value_bytes = int.to_bytes();
 
                 let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
                 args.push(key.len() as u8);
@@ -413,8 +403,9 @@ impl NikkaClient {
                 }
             }
 
-            NikkaType::NikkaString => {
-                let value_bytes = value.to_bytes();
+            NikkaTypeWrapper::NikkaString(str) => {
+                let string = str.to_string();
+                let value_bytes = string.to_bytes();
 
                 let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
                 args.push(key.len() as u8);
@@ -430,7 +421,7 @@ impl NikkaClient {
             }
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -455,7 +446,7 @@ impl NikkaClient {
             args: key.as_bytes().to_vec(),
         };
 
-        let content = form_packet(request);
+        let content = form_packet(&request);
 
         self.connection
             .write_all(&content)
@@ -464,10 +455,7 @@ impl NikkaClient {
         let response = form_response(&mut self.connection);
 
         match response {
-            ContentResponse(content_type, vec) => match content_type {
-                NString | NInt => Some(T::from_bytes(&vec)),
-                _ => None,
-            },
+            ContentResponse(NString | NInt, vec) => Some(T::from_bytes(&vec)),
             _ => None,
         }
     }

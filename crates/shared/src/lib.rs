@@ -132,7 +132,7 @@ impl Serializable for Vec<String> {
         let mut v = Vec::new();
 
         for content in self {
-            let size = content.len() as u8;
+            let size = u8::try_from(content.len()).expect("cannot support content that long");
             v.push(size);
             v.extend_from_slice(content.as_bytes());
         }
@@ -150,7 +150,7 @@ impl Serializable for Vec<String> {
             let string_bytes = &content[index..index + size as usize];
             index += size as usize;
             let string = String::from_bytes(string_bytes);
-            v.push(string)
+            v.push(string);
         }
 
         v

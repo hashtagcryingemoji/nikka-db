@@ -23,12 +23,7 @@ impl NikkaDb {
 
     pub fn get(&self, key: &str) -> Option<Value>
 where {
-        let content = self.storage.get(key).cloned();
-        match content {
-            Some(content_piece) => Some(content_piece),
-
-            None => None,
-        }
+        self.storage.get(key).cloned()
     }
 
     pub fn find_regex(&self, regex: &str) -> Vec<String> {

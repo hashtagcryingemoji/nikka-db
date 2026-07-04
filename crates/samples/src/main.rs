@@ -1,5 +1,6 @@
 use nikkadb_client::client::NikkaClient;
-use nikkadb_client::NikkaType::NikkaString;
+use nikkadb_client::NikkaType::TypeString;
+use nikkadb_client::NikkaTypeWrapper;
 use nikkadb_server::server::NikkaServer;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
@@ -106,9 +107,9 @@ fn deque() {
 
     let mut client = NikkaClient::with_port(&port);
 
-    let _ = client.create_deque("tasks", NikkaString);
-    let _ = client.push_first("tasks", "eat".to_string(), NikkaString);
-    let _ = client.push_last("tasks", "eat".to_string(), NikkaString);
-    let _ = client.push_last("tasks", "drink".to_string(), NikkaString);
-    println!("{}", client.pop_first::<String>("tasks").unwrap())
+    let _ = client.create_deque("tasks", TypeString);
+    let _ = client.push_first("tasks", NikkaTypeWrapper::NikkaString("eat"));
+    let _ = client.push_last("tasks", NikkaTypeWrapper::NikkaString("eat"));
+    let _ = client.push_last("tasks", NikkaTypeWrapper::NikkaString("eat"));
+    println!("{}", client.pop_first::<String>("tasks").unwrap());
 }
