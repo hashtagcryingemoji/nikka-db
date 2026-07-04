@@ -1,8 +1,0 @@
-[package]
-name = "samples"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-nikkadb-client = { path = "../nikkadb-client" }
-nikkadb-server = { path = "../nikkadb-server" }
