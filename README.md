@@ -1,7 +1,8 @@
 # Nikka-DB
 [![Tests](https://github.com/hashtagcryingemoji/nikka-db/actions/workflows/workflow.yml/badge.svg)](https://github.com/hashtagcryingemoji/nikka-db/actions/workflows/workflow.yml)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)]
-[![Rust](https://img.shields.io/badge/Rust-unstable-orange)]
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Rust](https://img.shields.io/badge/Rust-stable-orange)
+![Status](https://img.shields.io/badge/status-experimental-red)
 
 Lightweight, zero-dependency key-value database
 
