@@ -5,10 +5,10 @@ use shared::{
 };
 
 pub use crate::NikkaClient;
-use crate::{NikkaType, NikkaTypeWrapper};
+use crate::{NikkaType, NikkaTypeWrapper, NikkaTypeWrapper::{NikkaString, NikkaInt}};
 use shared::protocol::Response::{ContentResponse, Error, Success};
 use shared::protocol::{form_packet, form_response, Request};
-use shared::Action::{POPF, POPL};
+use shared::Action::{POPF, POPL, PUSHF, PUSHL};
 use shared::ContentType::{KeyValue, NDeque, NInt, NVector};
 use std::io::Write;
 use std::net::TcpStream;
@@ -306,41 +306,7 @@ impl NikkaClient {
     }
 
     pub fn push_first(&mut self, key: &str, value: NikkaTypeWrapper) -> Result<(), String> {
-        let request = match value {
-            NikkaTypeWrapper::NikkaInt(int) => {
-                let value_bytes = int.to_bytes();
-
-                let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
-                args.push(key.len() as u8);
-                args.extend_from_slice(key.as_bytes());
-
-                args.push(value_bytes.len() as u8);
-                args.extend_from_slice(&value_bytes);
-
-                Request {
-                    action: Action::PUSHF,
-                    content_type: KeyValue(Box::new(NInt)),
-                    args,
-                }
-            }
-
-            NikkaTypeWrapper::NikkaString(str) => {
-                let string = str.to_string();
-                let value_bytes = string.to_bytes();
-
-                let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
-                args.push(key.len() as u8);
-                args.extend_from_slice(key.as_bytes());
-
-                args.push(value_bytes.len() as u8);
-                args.extend_from_slice(&value_bytes);
-                Request {
-                    action: Action::PUSHF,
-                    content_type: KeyValue(Box::new(NString)),
-                    args,
-                }
-            }
-        };
+        let request = form_push_request(key, value, PUSHF);
 
         let content = form_packet(&request);
 
@@ -385,41 +351,7 @@ impl NikkaClient {
     }
 
     pub fn push_last(&mut self, key: &str, value: NikkaTypeWrapper) -> Result<(), String> {
-        let request = match value {
-            NikkaTypeWrapper::NikkaInt(int) => {
-                let value_bytes = int.to_bytes();
-
-                let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
-                args.push(key.len() as u8);
-                args.extend_from_slice(key.as_bytes());
-
-                args.push(value_bytes.len() as u8);
-                args.extend_from_slice(&value_bytes);
-
-                Request {
-                    action: Action::PUSHL,
-                    content_type: KeyValue(Box::new(NInt)),
-                    args,
-                }
-            }
-
-            NikkaTypeWrapper::NikkaString(str) => {
-                let string = str.to_string();
-                let value_bytes = string.to_bytes();
-
-                let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
-                args.push(key.len() as u8);
-                args.extend_from_slice(key.as_bytes());
-
-                args.push(value_bytes.len() as u8);
-                args.extend_from_slice(&value_bytes);
-                Request {
-                    action: Action::PUSHL,
-                    content_type: KeyValue(Box::new(NString)),
-                    args,
-                }
-            }
-        };
+        let request = form_push_request(key, value, PUSHL);
 
         let content = form_packet(&request);
 
@@ -459,4 +391,43 @@ impl NikkaClient {
             _ => None,
         }
     }
+}
+
+fn form_push_request(key: &str, value: NikkaTypeWrapper, action: Action) -> Request {
+    let request = match value {
+        NikkaInt(int) => {
+            let value_bytes = int.to_bytes();
+
+            let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
+            args.push(key.len() as u8);
+            args.extend_from_slice(key.as_bytes());
+
+            args.push(value_bytes.len() as u8);
+            args.extend_from_slice(&value_bytes);
+
+            Request {
+                action,
+                content_type: KeyValue(Box::new(NInt)),
+                args,
+            }
+        }
+
+        NikkaString(str) => {
+            let string = str.to_string();
+            let value_bytes = string.to_bytes();
+
+            let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
+            args.push(key.len() as u8);
+            args.extend_from_slice(key.as_bytes());
+
+            args.push(value_bytes.len() as u8);
+            args.extend_from_slice(&value_bytes);
+            Request {
+                action,
+                content_type: KeyValue(Box::new(NString)),
+                args,
+            }
+        }
+    };
+    request
 }

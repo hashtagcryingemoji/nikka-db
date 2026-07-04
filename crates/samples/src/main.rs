@@ -5,11 +5,8 @@ use nikkadb_server::server::NikkaServer;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
 
-fn main() {
-    basic();
-    transaction();
-    deque();
-}
+
+fn main() {}
 
 fn basic() {
     let db = NikkaServer::with_port("0");
@@ -21,10 +18,10 @@ fn basic() {
 
     let mut client = NikkaClient::with_port(&port);
 
-    client.set_string("language:mascot:go", "gopher");
-    client.set_string("language:mascot:java", "duke");
-    client.set_string("language:framework:java", "spring");
-    client.set_string("language:framework:rust", "axum");
+    let _ = client.set_string("language:mascot:go", "gopher");
+    let _ = client.set_string("language:mascot:java", "duke");
+    let _ = client.set_string("language:framework:java", "spring");
+    let _ = client.set_string("language:framework:rust", "axum");
 
     println!("all about java");
     for query in client.get_regex("language:*:java") {
@@ -53,8 +50,8 @@ fn basic() {
         );
     }
 
-    client.set_string("language:framework:typescript", "next.js");
-    client.set_string("language:framework:javascript", "react");
+    let _ = client.set_string("language:framework:typescript", "next.js");
+    let _ = client.set_string("language:framework:javascript", "react");
 
     println!("know the difference!");
     for query in client.get_regex("*:*:%%%%script") {
@@ -86,9 +83,9 @@ fn transaction() {
     let mut client = NikkaClient::with_port(&port);
 
     client.begin_transaction();
-    client.set_string("one", "1");
+    let _ = client.set_string("one", "1");
     client.erase_transaction();
-    client.set_string("two", "2");
+    let _ = client.set_string("two", "2");
     client.send_transaction();
 
     println!(
@@ -109,7 +106,7 @@ fn deque() {
 
     let _ = client.create_deque("tasks", TypeString);
     let _ = client.push_first("tasks", NikkaTypeWrapper::NikkaString("eat"));
-    let _ = client.push_last("tasks", NikkaTypeWrapper::NikkaString("eat"));
-    let _ = client.push_last("tasks", NikkaTypeWrapper::NikkaString("eat"));
-    println!("{}", client.pop_first::<String>("tasks").unwrap());
+    let _ = client.push_last("tasks", NikkaTypeWrapper::NikkaString("dota2"));
+    let _ = client.push_last("tasks", NikkaTypeWrapper::NikkaString("repeat")); // tasks: [eat, dota2, sleep]
+    println!("{}", client.pop_first::<String>("tasks").unwrap()); // eat
 }
