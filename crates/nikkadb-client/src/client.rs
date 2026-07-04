@@ -5,7 +5,10 @@ use shared::{
 };
 
 pub use crate::NikkaClient;
-use crate::{NikkaType, NikkaTypeWrapper, NikkaTypeWrapper::{NikkaString, NikkaInt}};
+use crate::{
+    NikkaType, NikkaTypeWrapper,
+    NikkaTypeWrapper::{NikkaInt, NikkaString},
+};
 use shared::protocol::Response::{ContentResponse, Error, Success};
 use shared::protocol::{form_packet, form_response, Request};
 use shared::Action::{POPF, POPL, PUSHF, PUSHL};

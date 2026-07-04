@@ -5,7 +5,6 @@ use nikkadb_server::server::NikkaServer;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
 
-
 fn main() {}
 
 fn basic() {
