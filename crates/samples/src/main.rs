@@ -1,19 +1,24 @@
 use nikkadb_client::client::NikkaClient;
+use nikkadb_client::NikkaType::NikkaString;
 use nikkadb_server::server::NikkaServer;
-use std::thread::spawn;
+use std::thread::{sleep, spawn};
+use std::time::Duration;
 
 fn main() {
     basic();
     transaction();
+    deque();
 }
 
 fn basic() {
-    spawn(|| {
-        let db = NikkaServer::with_port("5434");
-        db.run();
-    });
+    let db = NikkaServer::with_port("0");
+    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
 
-    let mut client = NikkaClient::with_port("5434");
+    spawn(|| db.run());
+
+    sleep(Duration::from_millis(100));
+
+    let mut client = NikkaClient::with_port(&port);
 
     client.set_string("language:mascot:go", "gopher");
     client.set_string("language:mascot:java", "duke");
@@ -70,23 +75,40 @@ fn basic() {
 }
 
 fn transaction() {
-    spawn(|| {
-        let db = NikkaServer::with_port("6767");
-        db.run();
-    });
+    let db = NikkaServer::with_port("0");
+    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
 
-    let mut client = NikkaClient::with_port("6767");
+    spawn(|| db.run());
+
+    sleep(Duration::from_millis(100));
+
+    let mut client = NikkaClient::with_port(&port);
 
     client.begin_transaction();
-    client.set_string("golang", "good");
+    client.set_string("one", "1");
     client.erase_transaction();
-    client.set_string("java", "good");
+    client.set_string("two", "2");
     client.send_transaction();
 
     println!(
         "{}",
-        client
-            .get_string("golang")
-            .unwrap_or("undefined".to_string())
+        client.get_string("one").unwrap_or("undefined".to_string())
     );
+}
+
+fn deque() {
+    let db = NikkaServer::with_port("0");
+    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
+
+    spawn(|| db.run());
+
+    sleep(Duration::from_millis(100));
+
+    let mut client = NikkaClient::with_port(&port);
+
+    let _ = client.create_deque("tasks", NikkaString);
+    let _ = client.push_first("tasks", "eat".to_string(), NikkaString);
+    let _ = client.push_last("tasks", "eat".to_string(), NikkaString);
+    let _ = client.push_last("tasks", "drink".to_string(), NikkaString);
+    println!("{}", client.pop_first::<String>("tasks").unwrap())
 }

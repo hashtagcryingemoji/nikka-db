@@ -35,7 +35,7 @@ impl TrieNode {
                         is_terminal: false,
                     });
 
-                    cn = cn.children.last_mut().unwrap();
+                    cn = cn.children.last_mut().expect("logic error");
                 }
             }
         }
@@ -135,7 +135,7 @@ impl TrieNode {
 
         match found_node {
             Some(index) => {
-                let chosen_child = self.children.get(index).unwrap();
+                let chosen_child = self.children.get(index).expect("logic error");
                 for word in chosen_child.find_regex(&regex_pattern[1..]) {
                     if self.char == '\0' {
                         v.push(word);

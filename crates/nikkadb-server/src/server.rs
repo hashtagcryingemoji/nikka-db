@@ -27,7 +27,7 @@ pub struct NikkaServer {
     pub tcp_listener: TcpListener,
     backup_notifier: Sender<bool>,
     backup_receiver: Receiver<bool>,
-    log: File,
+    _log: File,
     backup: File,
     backup_counter: u8,
 }
@@ -82,7 +82,7 @@ impl NikkaServer {
             tcp_listener: TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap(),
             backup_notifier,
             backup_receiver,
-            log,
+            _log: log,
             backup,
             backup_counter: 0,
         }
@@ -221,8 +221,10 @@ fn backup_control(
     loop {
         match receiver.try_recv() {
             Ok(_) => {
-                let db = database.lock().unwrap();
-                let hm = db.storage.as_bytes();
+                let db = database
+                    .lock()
+                    .expect("error when trying to access a db mutex");
+                let hm = db.storage.to_bytes();
                 drop(db);
 
                 backup_file.set_len(0).expect("cannot access file");

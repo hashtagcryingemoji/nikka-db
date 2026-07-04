@@ -1,9 +1,11 @@
 use crate::database::NikkaDb;
 use crate::ClientState::{DEFAULT, TRANSACTION};
-use shared::protocol::Response::{ContentResponse, Success};
+use shared::protocol::Response::{ContentResponse, Error, Success};
 use shared::protocol::{extract_key_value, Request, Response};
-use shared::Action::{CREATE, DELETE, GET, REGEX, TDISCARD, TEND, TERASE, TSTART};
-use shared::ContentType::{KeyValue, NInt, NNone, NString};
+use shared::Action::{
+    CLEAR, CREATE, DELETE, GET, POPF, POPL, PUSHF, PUSHL, REGEX, TDISCARD, TEND, TERASE, TSTART,
+};
+use shared::ContentType::{KeyValue, NDeque, NInt, NNone, NString, NVector};
 use shared::{ContentType, Serializable};
 use std::collections::{HashMap, VecDeque};
 use std::net::TcpStream;
@@ -38,18 +40,28 @@ impl Client {
         match action {
             GET => {
                 let key = &Vec::from_bytes(&args)[0];
-                let database = mutex.lock().unwrap();
+                let database = mutex
+                    .lock()
+                    .expect("error when trying to access a db mutex");
                 let response = match request.content_type {
-                    NString => match database.get::<String>(key) {
+                    NString => match database.get(key) {
                         Some(value) => {
-                            let v = vec![value];
-                            ContentResponse(NString, v.as_bytes())
+                            // if value.0 != NString {
+                            //     return Error("invalid key for string".to_string());
+                            // }
+
+                            let v = vec![String::from_bytes(&value.1)];
+                            ContentResponse(NString, v.to_bytes())
                         }
                         None => ContentResponse(NNone, vec![]),
                     },
-                    NInt => match database.get::<u8>(key) {
-                        Some(int) => {
-                            let v = vec![int];
+                    NInt => match database.get(key) {
+                        Some(value) => {
+                            if value.0 != NInt {
+                                return Error("invalid key for string".to_string());
+                            }
+
+                            let v = vec![u8::from_bytes(&value.1)];
                             ContentResponse(NInt, v)
                         }
 
@@ -73,15 +85,22 @@ impl Client {
                         }
                         NInt => {
                             let (k, v) = extract_key_value::<u8>(&args);
-                            let value_bytes = v.as_bytes();
+                            let value_bytes = v.to_bytes();
                             (k, (NInt, value_bytes.to_vec()))
+                        }
+                        NDeque(deque_type) => {
+                            let size = args[0] as usize;
+                            let key = String::from_bytes(&args[1..size + 1]);
+                            (key, (NDeque(deque_type), Vec::new()))
                         }
                         _ => panic!("logic error"),
                     },
 
                     _ => panic!("logic error"),
                 };
-                let mut database = mutex.lock().unwrap();
+                let mut database = mutex
+                    .lock()
+                    .expect("error when trying to access a db mutex");
                 database.add(k, v);
                 drop(database);
 
@@ -89,7 +108,9 @@ impl Client {
             }
             DELETE => {
                 let key = &Vec::from_bytes(&args)[0];
-                let mut database = mutex.lock().unwrap();
+                let mut database = mutex
+                    .lock()
+                    .expect("error when trying to access a db mutex");
                 database.delete(key);
                 drop(database);
 
@@ -98,11 +119,13 @@ impl Client {
             REGEX => {
                 let regex = &Vec::from_bytes(&args)[0];
 
-                let database = mutex.lock().unwrap();
-                let _content = database.find_regex(regex).as_bytes();
+                let database = mutex
+                    .lock()
+                    .expect("error when trying to access a db mutex");
+                let content = database.find_regex(regex).to_bytes();
                 drop(database);
 
-                ContentResponse(NNone, vec![])
+                ContentResponse(NVector(Box::new(NString)), content)
             }
             TSTART => {
                 self.state = TRANSACTION;
@@ -121,11 +144,149 @@ impl Client {
                 self.queue.clear();
                 Success
             }
+            CLEAR => {
+                let mut database = mutex
+                    .lock()
+                    .expect("error when trying to access a db mutex");
+                database.clear();
+
+                Success
+            }
+            POPF => {
+                let mut database = mutex
+                    .lock()
+                    .expect("error when trying to access a db mutex");
+
+                let key = String::from_bytes(&args);
+
+                let value = database.pop_first(&key);
+
+                match value {
+                    Some(value) => ContentResponse(value.0, value.1),
+                    None => ContentResponse(NNone, vec![]),
+                }
+            }
+
+            POPL => {
+                let mut database = mutex
+                    .lock()
+                    .expect("error when trying to access a db mutex");
+
+                let key = String::from_bytes(&args);
+
+                let value = database.pop_last(&key);
+
+                match value {
+                    Some(value) => ContentResponse(value.0, value.1),
+                    None => ContentResponse(NNone, vec![]),
+                }
+            }
+
+            PUSHF => {
+                let mut database = mutex
+                    .lock()
+                    .expect("error when trying to access a db mutex");
+
+                let key_size = args[0] as usize;
+                let key = &args[1..key_size + 1];
+
+                let value_size = args[key_size + 1] as usize;
+                let mut value_bytes = args[key_size + 2..key_size + 2 + value_size].to_vec();
+
+                let key = String::from_bytes(key);
+
+                let deque = database.get(&key);
+
+                match deque {
+                    None => Error("invalid key for deque".to_string()),
+
+                    Some(mut value) => {
+                        let deque_type = match request.content_type {
+                            KeyValue(value_type) => value_type,
+                            _ => panic!("logic error"),
+                        };
+
+                        if value.0 != NDeque(deque_type.clone()) {
+                            return Error("invalid key for deque".to_string());
+                        };
+
+                        match *deque_type {
+                            NInt => {
+                                value.1.splice(0..0, value_bytes);
+                                database.add(key, value);
+                                Success
+                            }
+
+                            NString => {
+                                let sep = value_bytes.len() as u8;
+                                value_bytes.push(sep);
+                                value_bytes.insert(0, sep);
+                                value.1.splice(0..0, value_bytes);
+                                database.add(key, value);
+                                Success
+                            }
+
+                            _ => panic!("logic error"),
+                        }
+                    }
+                }
+            }
+            PUSHL => {
+                let mut database = mutex
+                    .lock()
+                    .expect("error when trying to access a db mutex");
+
+                let key_size = args[0] as usize;
+                let key = &args[1..key_size + 1];
+
+                let value_size = args[key_size + 1] as usize;
+                let mut value_bytes = args[key_size + 2..key_size + 2 + value_size].to_vec();
+
+                let key = String::from_bytes(key);
+
+                let deque = database.get(&key);
+
+                match deque {
+                    None => Error("invalid key for deque".to_string()),
+
+                    Some(mut value) => {
+                        let deque_type = match request.content_type {
+                            KeyValue(value_type) => value_type,
+                            _ => panic!("logic error"),
+                        };
+
+                        if value.0 != NDeque(deque_type.clone()) {
+                            return Error("invalid key for deque".to_string());
+                        };
+
+                        match *deque_type {
+                            NInt => {
+                                value.1.extend_from_slice(&value_bytes);
+                                database.add(key, value);
+                                Success
+                            }
+
+                            NString => {
+                                let sep = value_bytes.len() as u8;
+                                value_bytes.push(sep);
+                                value_bytes.insert(0, sep);
+                                value.1.extend_from_slice(&value_bytes);
+                                database.add(key, value);
+                                Success
+                            }
+
+                            _ => panic!("logic error"),
+                        }
+                    }
+                }
+            }
         }
     }
 
     fn process_transaction(&mut self, mutex: &Arc<Mutex<NikkaDb>>) -> Response {
-        let mut database = mutex.lock().unwrap();
+        let mut database = mutex
+            .lock()
+            .expect("error when trying to access a db mutex");
         let mut snapshot = database.storage.clone();
 
         for request in &self.queue {

@@ -4,15 +4,14 @@ use shared::{
     Serializable,
 };
 
-use shared::protocol::Response::*;
+pub use crate::NikkaClient;
+use crate::NikkaType;
+use shared::protocol::Response::{ContentResponse, Error, Success};
 use shared::protocol::{form_packet, form_response, Request};
-use shared::ContentType::{KeyValue, NInt};
+use shared::Action::{POPF, POPL};
+use shared::ContentType::{KeyValue, NDeque, NInt, NVector};
 use std::io::Write;
 use std::net::TcpStream;
-
-pub struct NikkaClient {
-    connection: TcpStream,
-}
 
 impl Default for NikkaClient {
     fn default() -> Self {
@@ -30,7 +29,7 @@ impl NikkaClient {
     }
 
     pub fn set_string(&mut self, key: &str, value: &str) -> Result<(), String> {
-        let args = vec![key.to_string(), value.to_string()].as_bytes();
+        let args = vec![key.to_string(), value.to_string()].to_bytes();
 
         let request = Request {
             action: Action::CREATE,
@@ -83,7 +82,7 @@ impl NikkaClient {
     }
 
     pub fn set_int(&mut self, key: &str, value: u8) -> Result<(), String> {
-        let mut args = vec![key.to_string()].as_bytes();
+        let mut args = vec![key.to_string()].to_bytes();
         args.push(1);
         args.push(value);
 
@@ -167,7 +166,7 @@ impl NikkaClient {
     pub fn get_regex(&mut self, regex: &str) -> Vec<String> {
         let regex = regex.to_string();
         let mut args = Vec::new();
-        args.push(regex.len() as u8);
+        args.push(u8::try_from(regex.len()).expect("argument is too big"));
         args.extend_from_slice(regex.as_bytes());
 
         let request = Request {
@@ -185,10 +184,8 @@ impl NikkaClient {
         let response = form_response(&mut self.connection);
 
         match response {
-            ContentResponse(content_type, _content) => match content_type {
-                NString => {
-                    todo!("extract regex from raw bytes in content")
-                }
+            ContentResponse(content_type, content) => match content_type {
+                NVector(_) => Vec::from_bytes(&content),
 
                 _ => Vec::new(),
             },
@@ -210,7 +207,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let _response = form_response(&mut self.connection);
     }
 
     pub fn send_transaction(&mut self) {
@@ -226,7 +223,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let _response = form_response(&mut self.connection);
     }
 
     pub fn erase_transaction(&mut self) {
@@ -242,7 +239,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let _response = form_response(&mut self.connection);
     }
 
     pub fn abort_transaction(&mut self) {
@@ -258,6 +255,220 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
+        let _response = form_response(&mut self.connection);
+    }
+
+    pub fn clear_database(&mut self) {
+        let request: Request = Request {
+            action: Action::CLEAR,
+            content_type: NNone,
+            args: Vec::new(),
+        };
+
+        let content = form_packet(request);
+
+        self.connection
+            .write_all(&content)
+            .expect("error occurred while writing a message");
+
+        let _response = form_response(&mut self.connection);
+    }
+
+    pub fn create_deque(&mut self, key: &str, deque_type: NikkaType) -> Result<(), String> {
+        let mut args = Vec::with_capacity(1 + key.len());
+        args.push(key.len() as u8);
+        args.extend_from_slice(key.as_bytes());
+
+        let true_deque_type = match deque_type {
+            NikkaType::NikkaInt => NInt,
+            NikkaType::NikkaString => NString,
+        };
+
+        let request: Request = Request {
+            action: Action::CREATE,
+            content_type: KeyValue(Box::new(NDeque(Box::new(true_deque_type)))),
+            args,
+        };
+
+        let content = form_packet(request);
+
+        self.connection
+            .write_all(&content)
+            .expect("error occurred while writing a message");
+
         let response = form_response(&mut self.connection);
+
+        match response {
+            Success => Ok(()),
+
+            _ => Err("cannot create deque".to_string()),
+        }
+    }
+
+    pub fn push_first<T>(
+        &mut self,
+        key: &str,
+        value: T,
+        value_type: NikkaType,
+    ) -> Result<(), String>
+    where
+        T: Serializable,
+    {
+        let request = match value_type {
+            NikkaType::NikkaInt => {
+                let value_bytes = value.to_bytes();
+
+                let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
+                args.push(key.len() as u8);
+                args.extend_from_slice(key.as_bytes());
+
+                args.push(value_bytes.len() as u8);
+                args.extend_from_slice(&value_bytes);
+
+                Request {
+                    action: Action::PUSHF,
+                    content_type: KeyValue(Box::new(NInt)),
+                    args,
+                }
+            }
+
+            NikkaType::NikkaString => {
+                let value_bytes = value.to_bytes();
+
+                let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
+                args.push(key.len() as u8);
+                args.extend_from_slice(key.as_bytes());
+
+                args.push(value_bytes.len() as u8);
+                args.extend_from_slice(&value_bytes);
+                Request {
+                    action: Action::PUSHF,
+                    content_type: KeyValue(Box::new(NString)),
+                    args,
+                }
+            }
+        };
+
+        let content = form_packet(request);
+
+        self.connection
+            .write_all(&content)
+            .expect("error occurred while writing a message");
+
+        let response = form_response(&mut self.connection);
+
+        match response {
+            Success => Ok(()),
+            Error(message) => Err(message),
+            _ => panic!("logic error"),
+        }
+    }
+
+    pub fn pop_first<T>(&mut self, key: &str) -> Option<T>
+    where
+        T: Serializable,
+    {
+        let request = Request {
+            action: POPF,
+            content_type: NString,
+            args: key.as_bytes().to_vec(),
+        };
+
+        let content = form_packet(request);
+
+        self.connection
+            .write_all(&content)
+            .expect("error occurred while writing a message");
+
+        let response = form_response(&mut self.connection);
+
+        match response {
+            ContentResponse(content_type, vec) => match content_type {
+                NString | NInt => Some(T::from_bytes(&vec)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    pub fn push_last<T>(&mut self, key: &str, value: T, value_type: NikkaType) -> Result<(), String>
+    where
+        T: Serializable,
+    {
+        let request = match value_type {
+            NikkaType::NikkaInt => {
+                let value_bytes = value.to_bytes();
+
+                let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
+                args.push(key.len() as u8);
+                args.extend_from_slice(key.as_bytes());
+
+                args.push(value_bytes.len() as u8);
+                args.extend_from_slice(&value_bytes);
+
+                Request {
+                    action: Action::PUSHL,
+                    content_type: KeyValue(Box::new(NInt)),
+                    args,
+                }
+            }
+
+            NikkaType::NikkaString => {
+                let value_bytes = value.to_bytes();
+
+                let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
+                args.push(key.len() as u8);
+                args.extend_from_slice(key.as_bytes());
+
+                args.push(value_bytes.len() as u8);
+                args.extend_from_slice(&value_bytes);
+                Request {
+                    action: Action::PUSHL,
+                    content_type: KeyValue(Box::new(NString)),
+                    args,
+                }
+            }
+        };
+
+        let content = form_packet(request);
+
+        self.connection
+            .write_all(&content)
+            .expect("error occurred while writing a message");
+
+        let response = form_response(&mut self.connection);
+
+        match response {
+            Success => Ok(()),
+            Error(message) => Err(message),
+            _ => panic!("logic error"),
+        }
+    }
+
+    pub fn pop_last<T>(&mut self, key: &str) -> Option<T>
+    where
+        T: Serializable,
+    {
+        let request = Request {
+            action: POPL,
+            content_type: NString,
+            args: key.as_bytes().to_vec(),
+        };
+
+        let content = form_packet(request);
+
+        self.connection
+            .write_all(&content)
+            .expect("error occurred while writing a message");
+
+        let response = form_response(&mut self.connection);
+
+        match response {
+            ContentResponse(content_type, vec) => match content_type {
+                NString | NInt => Some(T::from_bytes(&vec)),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 }

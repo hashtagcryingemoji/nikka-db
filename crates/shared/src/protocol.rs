@@ -1,5 +1,5 @@
 use crate::protocol::Response::{ContentResponse, Error, Success};
-use crate::ContentType::KeyValue;
+use crate::ContentType::{KeyValue, NDeque};
 use crate::{Action, ContentType, Serializable, Value};
 use std::collections::HashMap;
 use std::io::Read;
@@ -22,7 +22,7 @@ pub struct Request {
 
 // tlv serialization and deserialization for response
 impl Serializable for Response {
-    fn as_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> Vec<u8> {
         let mut packet = Vec::new();
 
         match self {
@@ -68,7 +68,7 @@ impl Serializable for Response {
 }
 
 impl Serializable for HashMap<String, Value> {
-    fn as_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> Vec<u8> {
         let mut byte_repr: Vec<u8> = Vec::new();
 
         for (k, v) in self {
@@ -113,7 +113,7 @@ impl Serializable for HashMap<String, Value> {
 }
 
 impl Serializable for Request {
-    fn as_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> Vec<u8> {
         let mut packet = Vec::new();
         let op_code: u8 = self.action.try_into().expect("incorrect opcode");
         packet.push(op_code);
@@ -126,7 +126,15 @@ impl Serializable for Request {
         packet.push(content_type);
 
         match self.content_type.clone() {
-            KeyValue(value_type) => packet.push(u8::try_from(*value_type).expect("broken packet")),
+            KeyValue(value_type) => {
+                packet.push(u8::try_from(*value_type.clone()).expect("broken packet"));
+                match *value_type {
+                    ContentType::NDeque(content_type) => {
+                        packet.push(u8::try_from(*content_type).expect("broken packet"))
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
 
@@ -151,7 +159,17 @@ impl Serializable for Request {
                 KeyValue(_) => {
                     index += 1;
                     let value_type = ContentType::try_from(packet[index]).expect("broken packet");
-                    KeyValue(Box::new(value_type))
+                    let true_value_type = match value_type {
+                        NDeque(_) => {
+                            index += 1;
+                            let nested_type =
+                                ContentType::try_from(packet[index]).expect("broken packet");
+                            NDeque(Box::new(nested_type))
+                        }
+
+                        _ => value_type,
+                    };
+                    KeyValue(Box::new(true_value_type))
                 }
                 _ => content_type,
             },
@@ -178,9 +196,8 @@ where
     T: Serializable + std::fmt::Debug,
 {
     let mut packet = Vec::new();
-    packet.extend_from_slice(&content.as_bytes());
+    packet.extend_from_slice(&content.to_bytes());
     packet.insert(0, packet.len() as u8);
-
     packet
 }
 

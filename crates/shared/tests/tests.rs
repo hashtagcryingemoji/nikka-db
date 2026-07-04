@@ -17,7 +17,7 @@ fn hash_map_serialization_test() {
 
     let hash_map = hm.clone();
 
-    let bytes = hm.as_bytes();
+    let bytes = hm.to_bytes();
 
     let hm = HashMap::from_bytes(&bytes);
 
@@ -29,7 +29,7 @@ fn empty_map_serialization_test() {
     let hm = HashMap::new();
     let hash_map = hm.clone();
 
-    let bytes = hm.as_bytes();
+    let bytes = hm.to_bytes();
     let hm = HashMap::from_bytes(&bytes);
 
     assert_eq!(hm, hash_map)
@@ -43,7 +43,7 @@ fn string_vec_deser_test() {
         "charlie".to_string(),
     ];
 
-    let dv = Vec::from_bytes(&v.as_bytes());
+    let dv = Vec::from_bytes(&v.to_bytes());
 
     assert_eq!(v, dv);
 }
@@ -51,11 +51,11 @@ fn string_vec_deser_test() {
 #[test]
 fn response_serde_test() {
     let error_response = Error("error is occurred because of claude code in prod".to_string());
-    let deserialized_error_response = Response::from_bytes(&error_response.as_bytes());
+    let deserialized_error_response = Response::from_bytes(&error_response.to_bytes());
 
     let content = "database value".to_string();
     let content_response = ContentResponse(NString, content.as_bytes().to_vec());
-    let deserialized_content_response = Response::from_bytes(&content_response.as_bytes());
+    let deserialized_content_response = Response::from_bytes(&content_response.to_bytes());
 
     assert_eq!(error_response, deserialized_error_response);
     assert_eq!(content_response, deserialized_content_response);
@@ -68,7 +68,7 @@ fn request_serde_test() {
         content_type: NString,
         args: vec![12, 13, 14],
     };
-    let deserialized_request = Request::from_bytes(&request.as_bytes());
+    let deserialized_request = Request::from_bytes(&request.to_bytes());
 
     assert_eq!(request, deserialized_request);
 }
@@ -80,7 +80,7 @@ fn test_nested_types_serde() {
         content_type: KeyValue(Box::new(NString)),
         args: vec![12, 13, 14],
     };
-    let deserialized_request = Request::from_bytes(&request.as_bytes());
+    let deserialized_request = Request::from_bytes(&request.to_bytes());
 
     assert_eq!(request, deserialized_request);
 }

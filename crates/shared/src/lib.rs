@@ -1,7 +1,9 @@
 pub mod protocol;
 
-use crate::Action::{CREATE, DELETE, GET, REGEX, TDISCARD, TEND, TERASE, TSTART};
-use crate::ContentType::{KeyValue, NInt, NNone, NString};
+use crate::Action::{
+    CLEAR, CREATE, DELETE, GET, POPF, POPL, PUSHF, PUSHL, REGEX, TDISCARD, TEND, TERASE, TSTART,
+};
+use crate::ContentType::{KeyValue, NDeque, NInt, NNone, NString, NVector};
 
 type Value = (ContentType, Vec<u8>);
 
@@ -12,10 +14,12 @@ pub enum ContentType {
     NString = 1,
     NInt = 2,
     KeyValue(Box<ContentType>) = 3,
+    NVector(Box<ContentType>) = 4,
+    NDeque(Box<ContentType>) = 5,
 }
 
 pub trait Serializable {
-    fn as_bytes(&self) -> Vec<u8>;
+    fn to_bytes(&self) -> Vec<u8>;
     fn from_bytes(content: &[u8]) -> Self;
 }
 
@@ -30,6 +34,11 @@ pub enum Action {
     TEND = 6,
     TERASE = 7,
     TDISCARD = 8,
+    CLEAR = 9,
+    POPL = 10,
+    POPF = 11,
+    PUSHL = 12,
+    PUSHF = 13,
 }
 
 impl TryFrom<u8> for Action {
@@ -45,6 +54,11 @@ impl TryFrom<u8> for Action {
             6 => Ok(TEND),
             7 => Ok(TERASE),
             8 => Ok(TDISCARD),
+            9 => Ok(CLEAR),
+            10 => Ok(POPL),
+            11 => Ok(POPF),
+            12 => Ok(PUSHL),
+            13 => Ok(PUSHF),
             _ => Err("conversion error"),
         }
     }
@@ -59,6 +73,8 @@ impl TryFrom<u8> for ContentType {
             1 => Ok(NString),
             2 => Ok(NInt),
             3 => Ok(KeyValue(Box::new(NNone))),
+            4 => Ok(NVector(Box::new(NNone))),
+            5 => Ok(NDeque(Box::new(NNone))),
             _ => Err("conversion error"),
         }
     }
@@ -77,6 +93,11 @@ impl TryFrom<Action> for u8 {
             TEND => Ok(6),
             TERASE => Ok(7),
             TDISCARD => Ok(8),
+            CLEAR => Ok(9),
+            POPL => Ok(10),
+            POPF => Ok(11),
+            PUSHL => Ok(12),
+            PUSHF => Ok(13),
         }
     }
 }
@@ -90,22 +111,24 @@ impl TryFrom<ContentType> for u8 {
             NString => Ok(1),
             NInt => Ok(2),
             KeyValue(_) => Ok(3),
+            NVector(_) => Ok(4),
+            NDeque(_) => Ok(5),
         }
     }
 }
 
 impl Serializable for String {
-    fn as_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> Vec<u8> {
         self.as_bytes().to_vec()
     }
 
     fn from_bytes(content: &[u8]) -> Self {
-        String::from_utf8(content.to_vec()).unwrap()
+        String::from_utf8(content.to_vec()).expect("broken bytes")
     }
 }
 
 impl Serializable for Vec<String> {
-    fn as_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> Vec<u8> {
         let mut v = Vec::new();
 
         for content in self {
@@ -135,7 +158,7 @@ impl Serializable for Vec<String> {
 }
 
 impl Serializable for u8 {
-    fn as_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> Vec<u8> {
         vec![*self]
     }
 
