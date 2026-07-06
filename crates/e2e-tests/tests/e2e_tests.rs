@@ -9,7 +9,7 @@ use std::time::Duration;
 #[test]
 fn element_insertion_test() {
     let db = NikkaServer::with_port("0");
-    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
+    let port = db.get_port().to_string();
 
     spawn(|| db.run());
 
@@ -27,7 +27,7 @@ fn element_insertion_test() {
 #[test]
 fn backup_test() {
     let db = NikkaServer::with_port("0");
-    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
+    let port = db.get_port().to_string();
 
     spawn(|| db.run());
 
@@ -45,23 +45,35 @@ fn backup_test() {
 
     sleep(Duration::from_secs(1));
 
-    spawn(|| {
-        let db = NikkaServer::with_port("2220");
-        db.run();
-    });
+    let db = NikkaServer::with_port("0");
+    let port = db.get_port().to_string();
+
+    spawn(|| db.run());
 
     sleep(Duration::from_millis(100));
 
-    let mut db = NikkaClient::with_port("2220");
+    let mut db = NikkaClient::with_port(&port);
 
     assert_eq!(db.get_string("key"), Some("value".to_string()));
     assert_eq!(db.pop_first("numbers"), Some(1));
+    db.set_int("should be in wal", 12);
+
+    let db = NikkaServer::with_port("0");
+    let port = db.get_port().to_string();
+
+    spawn(|| db.run());
+
+    sleep(Duration::from_millis(100));
+
+    let mut db = NikkaClient::with_port(&port);
+
+    assert_eq!(db.get_int("should be in wal"), Some(12));
 }
 
 #[test]
 fn element_delete_test() {
     let db = NikkaServer::with_port("0");
-    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
+    let port = db.get_port().to_string();
 
     spawn(|| db.run());
 
@@ -77,7 +89,7 @@ fn element_delete_test() {
 #[test]
 fn transaction_test() {
     let db = NikkaServer::with_port("0");
-    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
+    let port = db.get_port().to_string();
 
     spawn(|| db.run());
 
@@ -98,7 +110,7 @@ fn transaction_test() {
 #[test]
 fn regex_test() {
     let db = NikkaServer::with_port("0");
-    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
+    let port = db.get_port().to_string();
 
     spawn(|| db.run());
 
@@ -119,7 +131,7 @@ fn regex_test() {
 #[test]
 fn clear_test() {
     let db = NikkaServer::with_port("0");
-    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
+    let port = db.get_port().to_string();
 
     spawn(|| db.run());
 
@@ -138,7 +150,7 @@ fn clear_test() {
 #[test]
 fn deque_test() {
     let db = NikkaServer::with_port("0");
-    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
+    let port = db.get_port().to_string();
 
     spawn(|| db.run());
 

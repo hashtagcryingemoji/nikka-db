@@ -1,10 +1,13 @@
 use crate::database::NikkaDb;
 use crate::utils::trie::TrieNode;
-use crate::Client;
 use crate::ClientState::{DEFAULT, TRANSACTION};
+use crate::{
+    extract_serialized_key_value, process_pop_first_request, process_pop_last_request,
+    process_push_first_request, process_push_last_request, Client,
+};
 use shared::protocol::Response::Success;
 use shared::protocol::{form_packet, Request};
-use shared::Action::TERASE;
+use shared::Action::{CREATE, DELETE, POPF, POPL, PUSHF, PUSHL, TERASE};
 use shared::{
     Action::{TDISCARD, TEND},
     Serializable,
@@ -24,38 +27,42 @@ use std::time::Duration;
 pub struct NikkaServer {
     database: NikkaDb,
     clients: Vec<Client>,
-    pub tcp_listener: TcpListener,
+    tcp_listener: TcpListener,
     backup_notifier: Sender<bool>,
     backup_receiver: Receiver<bool>,
     _log: File,
     backup: File,
+    wal: File,
     backup_counter: u8,
 }
 
 impl Default for NikkaServer {
+    #[cold]
     fn default() -> Self {
         Self::with_port("1402")
     }
 }
 
 impl NikkaServer {
+    #[cold]
     pub fn new() -> Self {
         Self::with_port("1402")
     }
 
+    #[cold]
     pub fn with_port(port: &str) -> Self {
         let log = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .open("log")
+            .open("log.nikka")
             .expect("failed to open or create log file");
 
         let mut backup = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .open("backup")
+            .open("backup.nikka")
             .expect("failed to open or create backup file");
         let (backup_notifier, backup_receiver) = channel::<bool>();
         let mut storage_backup_raw = Vec::new();
@@ -74,7 +81,16 @@ impl NikkaServer {
             trie.insert(k);
         }
 
-        let database = NikkaDb { storage, trie };
+        let mut database = NikkaDb { storage, trie };
+
+        let wal = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open("wal.nikka")
+            .expect("failed to open or create wal file");
+
+        update_from_wal(&mut database, &wal);
 
         NikkaServer {
             database,
@@ -82,10 +98,18 @@ impl NikkaServer {
             tcp_listener: TcpListener::bind(format!("127.0.0.1:{port}")).unwrap(),
             backup_notifier,
             backup_receiver,
+            wal,
             _log: log,
             backup,
             backup_counter: 0,
         }
+    }
+
+    pub fn get_port(&self) -> u16 {
+        self.tcp_listener
+            .local_addr()
+            .expect("cannot reach to tcp listener")
+            .port()
     }
 
     pub fn run(mut self) {
@@ -94,8 +118,16 @@ impl NikkaServer {
         let mutex = Arc::new(Mutex::new(self.database));
         let mutex_clone = Arc::clone(&mutex);
 
+        let wal_mutex = Arc::new(Mutex::new(self.wal));
+        let wal_mutex_clone = Arc::clone(&wal_mutex);
+
         thread::spawn(move || {
-            backup_control(&mutex_clone, &self.backup_receiver, self.backup);
+            backup_control(
+                &mutex_clone,
+                &self.backup_receiver,
+                self.backup,
+                &wal_mutex_clone,
+            );
         });
 
         thread::spawn(move || loop {
@@ -172,6 +204,7 @@ impl NikkaServer {
                 }
 
                 for bytes in &data_vec {
+                    let mut database = mutex.lock().unwrap();
                     let request = Request::from_bytes(bytes);
 
                     if self.clients[i].state == TRANSACTION
@@ -188,8 +221,22 @@ impl NikkaServer {
                         continue;
                     }
 
+                    if request.action == CREATE
+                        || request.action == DELETE
+                        || request.action == PUSHL
+                        || request.action == PUSHF
+                        || request.action == POPL
+                        || request.action == POPF
+                    {
+                        let serialized_request = request.to_bytes();
+                        let mut wal = wal_mutex.lock().expect("cannot lock mutex in main thread");
+                        wal.write_all(&serialized_request)
+                            .expect("cannot write to wal");
+                        wal.flush().expect("cannot write to wal");
+                    }
+
                     let response_bytes =
-                        form_packet(&self.clients[i].process_action(request, &mutex));
+                        form_packet(&self.clients[i].process_action(request, &mut database));
 
                     // add response bytes len to form a readable packet
 
@@ -216,6 +263,7 @@ fn backup_control(
     database: &Arc<Mutex<NikkaDb>>,
     receiver: &Receiver<bool>,
     mut backup_file: File,
+    wal: &Arc<Mutex<File>>,
 ) {
     loop {
         match receiver.try_recv() {
@@ -225,6 +273,10 @@ fn backup_control(
                     .expect("error when trying to access a db mutex");
                 let hm = db.storage.to_bytes();
                 drop(db);
+
+                let wal = wal.lock().expect("error while locking wal");
+                wal.set_len(0).expect("cannot truncate wal");
+                drop(wal);
 
                 backup_file.set_len(0).expect("cannot access file");
                 backup_file
@@ -237,6 +289,48 @@ fn backup_control(
                 break;
             }
             Err(TryRecvError::Empty) => sleep(Duration::from_micros(100)),
+        }
+    }
+}
+
+fn update_from_wal(database: &mut NikkaDb, mut wal: &File) {
+    let mut raw_requests = vec![];
+    let mut requests = Vec::new();
+    wal.seek(SeekFrom::Start(0)).expect("cannot reach wal file");
+    wal.read_to_end(&mut raw_requests)
+        .expect("cannot reach wal file");
+
+    let mut index = 0;
+
+    while index < raw_requests.len() {
+        let request = Request::from_bytes(&raw_requests[index..]);
+        index += request.to_bytes().len();
+        requests.push(request);
+    }
+
+    for request in requests {
+        match request.action {
+            CREATE => {
+                let (k, v) = extract_serialized_key_value(&request.args, request.content_type);
+                database.add(k, v);
+            }
+            DELETE => {
+                let key = &Vec::from_bytes(&request.args)[0];
+                database.delete(key);
+            }
+            POPF => {
+                process_pop_first_request(database, &request.args);
+            }
+            POPL => {
+                process_pop_last_request(database, &request.args);
+            }
+            PUSHF => {
+                process_push_first_request(database, &request.args, request.content_type);
+            }
+            PUSHL => {
+                process_push_last_request(database, &request.args, request.content_type);
+            }
+            _ => panic!("logic error"),
         }
     }
 }

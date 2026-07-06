@@ -5,11 +5,15 @@ use nikkadb_server::server::NikkaServer;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
 
-fn main() {}
+fn main() {
+    basic();
+    transaction();
+    deque();
+}
 
 fn basic() {
     let db = NikkaServer::with_port("0");
-    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
+    let port = db.get_port().to_string();
 
     spawn(|| db.run());
 
@@ -73,7 +77,7 @@ fn basic() {
 
 fn transaction() {
     let db = NikkaServer::with_port("0");
-    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
+    let port = db.get_port().to_string();
 
     spawn(|| db.run());
 
@@ -95,7 +99,7 @@ fn transaction() {
 
 fn deque() {
     let db = NikkaServer::with_port("0");
-    let port = db.tcp_listener.local_addr().unwrap().port().to_string();
+    let port = db.get_port().to_string();
 
     spawn(|| db.run());
 

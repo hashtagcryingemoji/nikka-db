@@ -95,7 +95,6 @@ impl<S: std::hash::BuildHasher + Default> Serializable for HashMap<String, Value
 
         while index < content.len() {
             let size = content[index];
-            println!("size: {size}");
             index += 1;
             let k = &content[index..index + size as usize];
             index += size as usize;
@@ -181,9 +180,11 @@ impl Serializable for Request {
             Err(e) => panic!("{}", e),
         };
 
-        index += 2;
+        index += 1;
+        let args_len = packet[index] as usize;
+        index += 1;
 
-        let args = match packet.get(index..) {
+        let args = match packet.get(index..index + args_len) {
             Some(arg) => arg.to_vec(),
             None => panic!("broken packet"),
         };
