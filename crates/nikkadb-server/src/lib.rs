@@ -1,5 +1,6 @@
 use crate::database::NikkaDb;
 use crate::ClientState::{DEFAULT, TRANSACTION};
+use mio::net::TcpStream;
 use shared::protocol::Response::{ContentResponse, Error, Success};
 use shared::protocol::{extract_key_value, Request, Response};
 use shared::Action::{
@@ -8,7 +9,6 @@ use shared::Action::{
 use shared::ContentType::{KeyValue, NDeque, NInt, NNone, NString, NVector};
 use shared::{ContentType, Serializable};
 use std::collections::VecDeque;
-use std::net::TcpStream;
 
 mod database;
 pub mod server;
@@ -129,7 +129,7 @@ fn process_in_transaction(request: Request, snapshot: &mut NikkaDb) -> Response 
 
             Success
         }
-        _ => panic!("logic error"),
+        _ => unreachable!(),
     }
 }
 
@@ -154,10 +154,10 @@ fn extract_serialized_key_value(
                 let key = String::from_bytes(&args[1..=size]);
                 (key, (NDeque(deque_type), Vec::new()))
             }
-            _ => panic!("logic error"),
+            _ => unreachable!(),
         },
 
-        _ => panic!("logic error"),
+        _ => unreachable!(),
     };
     (k, v)
 }
@@ -180,7 +180,7 @@ fn get_deque_and_push_value(
 
 fn process_get_request(
     database: &NikkaDb,
-    args: &Vec<u8>,
+    args: &[u8],
     content_type: &ContentType,
 ) -> Result<Response, Response> {
     let key = &Vec::from_bytes(args)[0];
@@ -204,7 +204,7 @@ fn process_get_request(
 
             None => ContentResponse(NNone, vec![]),
         },
-        _ => panic!("logic error"),
+        _ => unreachable!(),
     };
 
     Ok(response)
@@ -216,12 +216,12 @@ fn process_create_request(database: &mut NikkaDb, args: &[u8], content_type: Con
 }
 
 fn process_delete_request(database: &mut NikkaDb, args: &[u8]) {
-    let key = &Vec::from_bytes(&args)[0];
+    let key = &Vec::from_bytes(args)[0];
     database.delete(key);
 }
 
 fn process_pop_first_request(database: &mut NikkaDb, args: &[u8]) -> Response {
-    let key = String::from_bytes(&args);
+    let key = String::from_bytes(args);
 
     let value = database.pop_first(&key);
 
@@ -244,7 +244,7 @@ fn process_pop_last_request(database: &mut NikkaDb, args: &[u8]) -> Response {
 
 fn process_push_last_request(
     database: &mut NikkaDb,
-    args: &Vec<u8>,
+    args: &[u8],
     content_type: ContentType,
 ) -> Result<Response, Response> {
     let (mut value_bytes, key, deque) = get_deque_and_push_value(args, database);
@@ -254,7 +254,7 @@ fn process_push_last_request(
 
         Some(mut value) => {
             let KeyValue(deque_type) = content_type else {
-                panic!("logic error")
+                unreachable!()
             };
 
             if value.0 != NDeque(deque_type.clone()) {
@@ -277,7 +277,7 @@ fn process_push_last_request(
                     Success
                 }
 
-                _ => panic!("logic error"),
+                _ => unreachable!(),
             }
         }
     })
@@ -285,7 +285,7 @@ fn process_push_last_request(
 
 fn process_push_first_request(
     database: &mut NikkaDb,
-    args: &Vec<u8>,
+    args: &[u8],
     content_type: ContentType,
 ) -> Result<Response, Response> {
     let (mut value_bytes, key, deque) = get_deque_and_push_value(args, database);
@@ -295,7 +295,7 @@ fn process_push_first_request(
 
         Some(mut value) => {
             let KeyValue(deque_type) = content_type else {
-                panic!("logic error")
+                unreachable!()
             };
 
             if value.0 != NDeque(deque_type.clone()) {
@@ -318,7 +318,7 @@ fn process_push_first_request(
                     Success
                 }
 
-                _ => panic!("logic error"),
+                _ => unreachable!(),
             }
         }
     })

@@ -54,11 +54,11 @@ where {
                         dirty_string
                     }
                     ContentType::NInt => deque_content.drain(0..1).collect(),
-                    _ => panic!("logic error"),
+                    _ => unreachable!(),
                 };
 
                 self.storage.insert(
-                    key.parse().unwrap(),
+                    key.parse().expect("invalid key"),
                     (NDeque(content_type.clone()), deque_content),
                 );
                 Some((*content_type, content))
@@ -90,10 +90,10 @@ where {
                         dirty_string.pop();
                         dirty_string
                     }
-                    _ => panic!("logic error"),
+                    _ => unreachable!(),
                 };
                 self.storage.insert(
-                    key.parse().unwrap(),
+                    key.parse().expect("invalid key"),
                     (NDeque(content_type.clone()), deque_content),
                 );
                 Some((*content_type, content))

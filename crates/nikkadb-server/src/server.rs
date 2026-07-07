@@ -5,6 +5,8 @@ use crate::{
     extract_serialized_key_value, process_pop_first_request, process_pop_last_request,
     process_push_first_request, process_push_last_request, Client,
 };
+use mio::net::TcpListener;
+use mio::{Events, Interest, Poll, Token};
 use shared::protocol::Response::Success;
 use shared::protocol::{form_packet, Request};
 use shared::Action::{CREATE, DELETE, POPF, POPL, PUSHF, PUSHL, TERASE};
@@ -16,7 +18,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::ErrorKind::WouldBlock;
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -26,7 +28,7 @@ use std::time::Duration;
 
 pub struct NikkaServer {
     database: NikkaDb,
-    clients: Vec<Client>,
+    clients: HashMap<usize, Client>,
     tcp_listener: TcpListener,
     backup_notifier: Sender<bool>,
     backup_receiver: Receiver<bool>,
@@ -43,6 +45,7 @@ impl Default for NikkaServer {
     }
 }
 
+const SERVER: Token = Token(0);
 impl NikkaServer {
     #[cold]
     pub fn new() -> Self {
@@ -92,10 +95,13 @@ impl NikkaServer {
 
         update_from_wal(&mut database, &wal);
 
+        let localhost_v4 = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        let addr = SocketAddr::new(localhost_v4, port.parse::<u16>().expect("invalid port"));
+
         NikkaServer {
             database,
-            clients: Vec::new(),
-            tcp_listener: TcpListener::bind(format!("127.0.0.1:{port}")).unwrap(),
+            tcp_listener: TcpListener::bind(addr).expect("cannot bind"),
+            clients: HashMap::new(),
             backup_notifier,
             backup_receiver,
             wal,
@@ -113,7 +119,15 @@ impl NikkaServer {
     }
 
     pub fn run(mut self) {
-        let (tx, rx) = channel::<TcpStream>();
+        let mut unique = 1;
+        let mut id_client_map = self.clients;
+        let mut poll = Poll::new().expect("cannot poll");
+        let mut events = Events::with_capacity(128);
+        let mut server = self.tcp_listener;
+
+        poll.registry()
+            .register(&mut server, SERVER, Interest::READABLE)
+            .expect("cannot register server");
 
         let mutex = Arc::new(Mutex::new(self.database));
         let mutex_clone = Arc::clone(&mutex);
@@ -130,129 +144,128 @@ impl NikkaServer {
             );
         });
 
-        thread::spawn(move || loop {
-            match self.tcp_listener.accept() {
-                Ok((socket, _)) => {
-                    socket
-                        .set_nonblocking(true)
-                        .expect("cannot set socket to non blocking mode");
-                    if tx.send(socket).is_err() {
-                        break;
-                    }
-                }
-
-                Err(e) => {
-                    panic!("unmatched error occurred: {e}")
-                }
-            }
-        });
-
         'outer_loop: loop {
-            while let Ok(new_socket) = rx.try_recv() {
-                let client = Client {
-                    socket: new_socket,
-                    state: DEFAULT,
-                    queue: VecDeque::default(),
-                };
+            poll.poll(&mut events, None).expect("cannot poll");
 
-                self.clients.push(client);
-            }
+            for event in &events {
+                match event.token() {
+                    SERVER => loop {
+                        match server.accept() {
+                            Ok(mut incoming) => {
+                                poll.registry()
+                                    .register(&mut incoming.0, Token(unique), Interest::READABLE)
+                                    .expect("cannot reg client");
+                                id_client_map.insert(
+                                    unique,
+                                    Client {
+                                        socket: incoming.0,
+                                        state: DEFAULT,
+                                        queue: VecDeque::new(),
+                                    },
+                                );
+                                unique += 1;
+                            }
+                            Err(e) if e.kind() == WouldBlock => break,
+                            _ => unreachable!(),
+                        }
+                    },
+                    client_token => {
+                        let client = id_client_map
+                            .get_mut(&client_token.0)
+                            .expect("cannot find client in the map");
+                        let mut data_vec = Vec::new();
 
-            for i in (0..self.clients.len()).rev() {
-                let rclient = &self.clients[i].socket;
+                        let mut reader = BufReader::new(&client.socket);
 
-                let mut reader = BufReader::new(rclient);
+                        'harvesting: loop {
+                            #[allow(unused_assignments)]
+                            let mut consumed_data_size = 0;
+                            match reader.fill_buf() {
+                                Ok(buffer) => {
+                                    if buffer.is_empty() {
+                                        id_client_map.remove(&client_token.0);
+                                        continue 'outer_loop;
+                                    }
 
-                let mut data_vec = Vec::new();
+                                    let request_len = buffer[0];
 
-                'harvesting: loop {
-                    #[allow(unused_assignments)]
-                    let mut consumed_data_size = 0;
-                    match reader.fill_buf() {
-                        Ok(buffer) => {
-                            if buffer.is_empty() {
-                                self.clients.remove(i);
-                                continue 'outer_loop;
+                                    if buffer.len() > request_len as usize {
+                                        consumed_data_size = request_len + 1;
+                                        let data = &buffer[1..consumed_data_size as usize];
+
+                                        data_vec.push(data.to_vec());
+                                    } else {
+                                        break 'harvesting;
+                                    }
+                                }
+
+                                Err(ref e) if e.kind() == WouldBlock => {
+                                    if data_vec.is_empty() {
+                                        continue 'outer_loop;
+                                    }
+                                    break;
+                                }
+
+                                Err(_) => panic!(),
                             }
 
-                            let request_len = buffer[0];
-
-                            if buffer.len() > request_len as usize {
-                                consumed_data_size = request_len + 1;
-                                let data = &buffer[1..consumed_data_size as usize];
-
-                                data_vec.push(data.to_vec());
-                            } else {
-                                break 'harvesting;
+                            if consumed_data_size > 0 {
+                                reader.consume(consumed_data_size as usize);
                             }
                         }
 
-                        Err(ref e) if e.kind() == WouldBlock => {
-                            if data_vec.is_empty() {
-                                // todo(use mio to create non-blocking event loop without this cringe sleep)
-                                //sleep(Duration::from_millis(100));
-                                continue 'outer_loop;
+                        for bytes in &data_vec {
+                            let mut database = mutex.lock().expect("cannot access db mutex");
+                            let request = Request::from_bytes(bytes);
+
+                            if client.state == TRANSACTION
+                                && (request.action != TDISCARD
+                                    && request.action != TEND
+                                    && request.action != TERASE)
+                            {
+                                client.queue.push_back(request);
+                                let mut wclient = &client.socket;
+                                let response_bytes = form_packet(&Success);
+                                wclient
+                                    .write_all(&response_bytes)
+                                    .expect("error occurred while writing a message");
+                                continue;
                             }
-                            break;
+
+                            if request.action == CREATE
+                                || request.action == DELETE
+                                || request.action == PUSHL
+                                || request.action == PUSHF
+                                || request.action == POPL
+                                || request.action == POPF
+                            {
+                                let serialized_request = request.to_bytes();
+                                let mut wal =
+                                    wal_mutex.lock().expect("cannot lock mutex in main thread");
+                                wal.write_all(&serialized_request)
+                                    .expect("cannot write to wal");
+                                wal.flush().expect("cannot write to wal");
+                            }
+
+                            let response_bytes =
+                                form_packet(&client.process_action(request, &mut database));
+
+                            // add response bytes len to form a readable packet
+
+                            let mut wclient = &client.socket;
+
+                            wclient
+                                .write_all(&response_bytes)
+                                .expect("error occurred while writing a message");
+
+                            self.backup_counter += 1;
+
+                            if self.backup_counter >= 100 {
+                                self.backup_notifier.send(true).expect(
+                                    "cannot send backup notification, probably side thread is dead",
+                                );
+                            }
                         }
-
-                        Err(_) => panic!(),
-                    }
-
-                    if consumed_data_size > 0 {
-                        reader.consume(consumed_data_size as usize);
-                    }
-                }
-
-                for bytes in &data_vec {
-                    let mut database = mutex.lock().unwrap();
-                    let request = Request::from_bytes(bytes);
-
-                    if self.clients[i].state == TRANSACTION
-                        && (request.action != TDISCARD
-                            && request.action != TEND
-                            && request.action != TERASE)
-                    {
-                        self.clients[i].queue.push_back(request);
-                        let mut wclient = &self.clients[i].socket;
-                        let response_bytes = form_packet(&Success);
-                        wclient
-                            .write_all(&response_bytes)
-                            .expect("error occurred while writing a message");
-                        continue;
-                    }
-
-                    if request.action == CREATE
-                        || request.action == DELETE
-                        || request.action == PUSHL
-                        || request.action == PUSHF
-                        || request.action == POPL
-                        || request.action == POPF
-                    {
-                        let serialized_request = request.to_bytes();
-                        let mut wal = wal_mutex.lock().expect("cannot lock mutex in main thread");
-                        wal.write_all(&serialized_request)
-                            .expect("cannot write to wal");
-                        wal.flush().expect("cannot write to wal");
-                    }
-
-                    let response_bytes =
-                        form_packet(&self.clients[i].process_action(request, &mut database));
-
-                    // add response bytes len to form a readable packet
-
-                    let mut wclient = &self.clients[i].socket;
-
-                    wclient
-                        .write_all(&response_bytes)
-                        .expect("error occurred while writing a message");
-
-                    self.backup_counter += 1;
-
-                    if self.backup_counter >= 100 {
-                        self.backup_notifier.send(true).expect(
-                            "cannot send backup notification, probably side thread is dead",
-                        );
                     }
                 }
             }
@@ -336,7 +349,7 @@ fn update_from_wal(database: &mut NikkaDb, mut wal: &File) {
             PUSHL => {
                 process_push_last_request(database, &request.args, request.content_type);
             }
-            _ => panic!("logic error"),
+            _ => unreachable!(),
         }
     }
 }

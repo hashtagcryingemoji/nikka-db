@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+mio = { version = "1.2.1", features = ["net", "os-poll"] }
 shared = { path = "../shared"}
 
 [lints]

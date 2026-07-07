@@ -316,7 +316,7 @@ impl NikkaClient {
     }
 
     pub fn push_first(&mut self, key: &str, value: NikkaTypeWrapper) -> Result<(), String> {
-        let request = form_push_request(key, value, PUSHF);
+        let request = form_push_request(key, &value, PUSHF);
 
         let content = form_packet(&request);
 
@@ -329,7 +329,7 @@ impl NikkaClient {
         match response {
             Success => Ok(()),
             Error(message) => Err(message),
-            _ => panic!("logic error"),
+            _ => unreachable!(),
         }
     }
 
@@ -352,16 +352,13 @@ impl NikkaClient {
         let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
-            ContentResponse(content_type, vec) => match content_type {
-                NString | NInt => Some(T::from_bytes(&vec)),
-                _ => None,
-            },
+            ContentResponse(NString | NInt, vec) => Some(T::from_bytes(&vec)),
             _ => None,
         }
     }
 
     pub fn push_last(&mut self, key: &str, value: NikkaTypeWrapper) -> Result<(), String> {
-        let request = form_push_request(key, value, PUSHL);
+        let request = form_push_request(key, &value, PUSHL);
 
         let content = form_packet(&request);
 
@@ -374,7 +371,7 @@ impl NikkaClient {
         match response {
             Success => Ok(()),
             Error(message) => Err(message),
-            _ => panic!("logic error"),
+            _ => unreachable!(),
         }
     }
 
@@ -403,16 +400,16 @@ impl NikkaClient {
     }
 }
 
-fn form_push_request(key: &str, value: NikkaTypeWrapper, action: Action) -> Request {
+fn form_push_request(key: &str, value: &NikkaTypeWrapper, action: Action) -> Request {
     let request = match value {
         NikkaInt(int) => {
             let value_bytes = int.to_bytes();
 
             let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
-            args.push(key.len() as u8);
+            args.push(u8::try_from(key.len()).expect("key is too big"));
             args.extend_from_slice(key.as_bytes());
 
-            args.push(value_bytes.len() as u8);
+            args.push(u8::try_from(value_bytes.len()).expect("value is too big"));
             args.extend_from_slice(&value_bytes);
 
             Request {
@@ -427,10 +424,10 @@ fn form_push_request(key: &str, value: NikkaTypeWrapper, action: Action) -> Requ
             let value_bytes = string.to_bytes();
 
             let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
-            args.push(key.len() as u8);
+            args.push(u8::try_from(key.len()).expect("key is too big"));
             args.extend_from_slice(key.as_bytes());
 
-            args.push(value_bytes.len() as u8);
+            args.push(u8::try_from(value_bytes.len()).expect("value is too big"));
             args.extend_from_slice(&value_bytes);
             Request {
                 action,
