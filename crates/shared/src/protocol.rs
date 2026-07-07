@@ -20,6 +20,8 @@ pub struct Request {
     pub args: Vec<u8>,
 }
 
+const ERROR_MESSAGE_SIZE: u8 = 1;
+
 // tlv serialization and deserialization for response
 impl Serializable for Response {
     fn to_bytes(&self) -> Vec<u8> {
@@ -37,7 +39,7 @@ impl Serializable for Response {
                 packet.extend_from_slice(content);
             }
             Error(message) => {
-                packet.push(1);
+                packet.push(ERROR_MESSAGE_SIZE);
                 packet.push(u8::try_from(message.len()).expect("message is too long to store"));
                 packet.extend_from_slice(message.as_bytes());
             }
@@ -207,11 +209,11 @@ where
     packet
 }
 
-pub fn form_response(connection: &mut TcpStream) -> Response {
-    let mut buffer = vec![0u8; 1];
+pub fn form_response(connection: &mut TcpStream, buffer: &mut [u8]) -> Response {
+    //let mut buffer = vec![0u8; 1];
 
     connection
-        .read_exact(&mut buffer)
+        .read_exact(buffer)
         .expect("error occurred while reading a packet");
 
     let mut buffer = vec![0u8; buffer[0] as usize];

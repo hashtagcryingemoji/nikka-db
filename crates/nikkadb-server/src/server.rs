@@ -15,7 +15,7 @@ use shared::{
 use std::collections::{HashMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::ErrorKind::WouldBlock;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -189,7 +189,8 @@ impl NikkaServer {
 
                         Err(ref e) if e.kind() == WouldBlock => {
                             if data_vec.is_empty() {
-                                sleep(Duration::from_millis(100));
+                                // todo(use mio to create non-blocking event loop without this cringe sleep)
+                                //sleep(Duration::from_millis(100));
                                 continue 'outer_loop;
                             }
                             break;
@@ -282,8 +283,9 @@ fn backup_control(
                 backup_file
                     .seek(SeekFrom::Start(0))
                     .expect("cannot access file");
-                backup_file.write_all(&hm).expect("cannot access file");
-                backup_file.flush().expect("cannot access file");
+                let mut buffer = BufWriter::new(&backup_file);
+                buffer.write_all(&hm).expect("cannot access file");
+                buffer.flush().expect("cannot access file");
             }
             Err(TryRecvError::Disconnected) => {
                 break;
@@ -297,7 +299,11 @@ fn update_from_wal(database: &mut NikkaDb, mut wal: &File) {
     let mut raw_requests = vec![];
     let mut requests = Vec::new();
     wal.seek(SeekFrom::Start(0)).expect("cannot reach wal file");
-    wal.read_to_end(&mut raw_requests)
+
+    let mut buffer = BufReader::new(wal);
+
+    buffer
+        .read_to_end(&mut raw_requests)
         .expect("cannot reach wal file");
 
     let mut index = 0;

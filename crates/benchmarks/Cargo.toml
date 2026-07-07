@@ -1,0 +1,19 @@
+[package]
+name = "benchmarks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+criterion = "0.8.2"
+nikkadb-client = { path = "../nikkadb-client" }
+nikkadb-server = { path = "../nikkadb-server" }
+
+
+[[bench]]
+name = "database_bench"
+harness = false
+
+[lints]
+workspace = true

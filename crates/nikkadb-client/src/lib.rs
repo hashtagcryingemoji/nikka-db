@@ -4,6 +4,7 @@ pub mod client;
 
 pub struct NikkaClient {
     connection: TcpStream,
+    buffer: Vec<u8>,
 }
 
 pub enum NikkaType {

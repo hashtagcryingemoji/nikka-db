@@ -22,12 +22,19 @@ impl Default for NikkaClient {
     }
 }
 
+const U8_SIZE: u8 = 1;
+
 impl NikkaClient {
     #[must_use]
     pub fn with_port(port: &str) -> Self {
+        let connection =
+            TcpStream::connect(format!("127.0.0.1:{port}")).expect("error occurred while binding");
+        connection
+            .set_nodelay(true)
+            .expect("cannot set client to no delay mode");
         NikkaClient {
-            connection: TcpStream::connect(format!("127.0.0.1:{port}"))
-                .expect("error occurred while binding"),
+            buffer: vec![0u8; 1],
+            connection,
         }
     }
 
@@ -45,7 +52,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
@@ -72,7 +79,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             ContentResponse(content_type, content) => match content_type {
@@ -86,7 +93,7 @@ impl NikkaClient {
 
     pub fn set_int(&mut self, key: &str, value: u8) -> Result<(), String> {
         let mut args = vec![key.to_string()].to_bytes();
-        args.push(1);
+        args.push(U8_SIZE);
         args.push(value);
 
         let request = Request {
@@ -100,7 +107,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
@@ -127,7 +134,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             ContentResponse(content_type, content) => match content_type {
@@ -157,7 +164,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
@@ -184,7 +191,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             ContentResponse(content_type, content) => match content_type {
@@ -210,7 +217,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let _response = form_response(&mut self.connection);
+        let _response = form_response(&mut self.connection, &mut self.buffer);
     }
 
     pub fn send_transaction(&mut self) {
@@ -226,7 +233,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let _response = form_response(&mut self.connection);
+        let _response = form_response(&mut self.connection, &mut self.buffer);
     }
 
     pub fn erase_transaction(&mut self) {
@@ -242,7 +249,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let _response = form_response(&mut self.connection);
+        let _response = form_response(&mut self.connection, &mut self.buffer);
     }
 
     pub fn abort_transaction(&mut self) {
@@ -258,7 +265,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let _response = form_response(&mut self.connection);
+        let _response = form_response(&mut self.connection, &mut self.buffer);
     }
 
     pub fn clear_database(&mut self) {
@@ -274,7 +281,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let _response = form_response(&mut self.connection);
+        let _response = form_response(&mut self.connection, &mut self.buffer);
     }
 
     pub fn create_deque(&mut self, key: &str, deque_type: NikkaType) -> Result<(), String> {
@@ -299,7 +306,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
@@ -317,7 +324,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
@@ -342,7 +349,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             ContentResponse(content_type, vec) => match content_type {
@@ -362,7 +369,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
@@ -387,7 +394,7 @@ impl NikkaClient {
             .write_all(&content)
             .expect("error occurred while writing a message");
 
-        let response = form_response(&mut self.connection);
+        let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             ContentResponse(NString | NInt, vec) => Some(T::from_bytes(&vec)),
