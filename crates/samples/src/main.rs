@@ -21,17 +21,19 @@ fn basic() {
 
     let mut client = NikkaClient::with_port(&port);
 
-    let _ = client.set_string("language:mascot:go", "gopher");
-    let _ = client.set_string("language:mascot:java", "duke");
-    let _ = client.set_string("language:framework:java", "spring");
-    let _ = client.set_string("language:framework:rust", "axum");
+    let _ = client.set("language:mascot:go", "gopher");
+    let _ = client.set("language:mascot:java", "duke");
+    let _ = client.set::<&str>("language:framework:java", "spring"); // type safety
+    let _ = client.set::<&str>("language:framework:rust", "axum");
 
     println!("all about java");
     for query in client.get_regex("language:*:java") {
         println!(
             "{} - {}",
             query,
-            client.get_string(&query).unwrap_or("undefined".to_string())
+            client
+                .get::<String>(&query)
+                .unwrap_or("undefined".to_string())
         );
     }
 
@@ -40,7 +42,9 @@ fn basic() {
         println!(
             "{} - {}",
             query,
-            client.get_string(&query).unwrap_or("undefined".to_string())
+            client
+                .get::<String>(&query)
+                .unwrap_or("undefined".to_string())
         );
     }
 
@@ -49,19 +53,23 @@ fn basic() {
         println!(
             "{} - {}",
             query,
-            client.get_string(&query).unwrap_or("undefined".to_string())
+            client
+                .get::<String>(&query)
+                .unwrap_or("undefined".to_string())
         );
     }
 
-    let _ = client.set_string("language:framework:typescript", "next.js");
-    let _ = client.set_string("language:framework:javascript", "react");
+    let _ = client.set("language:framework:typescript", "next.js");
+    let _ = client.set("language:framework:javascript", "react");
 
     println!("know the difference!");
     for query in client.get_regex("*:*:%%%%script") {
         println!(
             "{} - {}",
             query,
-            client.get_string(&query).unwrap_or("undefined".to_string())
+            client
+                .get::<String>(&query)
+                .unwrap_or("undefined".to_string())
         );
     }
 
@@ -70,7 +78,9 @@ fn basic() {
         println!(
             "{} - {}",
             query,
-            client.get_string(&query).unwrap_or("undefined".to_string())
+            client
+                .get::<String>(&query)
+                .unwrap_or("undefined".to_string())
         );
     }
 }
@@ -86,15 +96,12 @@ fn transaction() {
     let mut client = NikkaClient::with_port(&port);
 
     client.begin_transaction();
-    let _ = client.set_string("one", "1");
+    let _ = client.set("one", 1);
     client.erase_transaction();
-    let _ = client.set_string("two", "2");
+    let _ = client.set("two", 2);
     client.send_transaction();
 
-    println!(
-        "{}",
-        client.get_string("one").unwrap_or("undefined".to_string())
-    );
+    println!("{}", client.get("one").unwrap_or("undefined".to_string()));
 }
 
 fn deque() {

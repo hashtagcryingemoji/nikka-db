@@ -1,5 +1,5 @@
 use nikkadb_client::client::NikkaClient;
-use nikkadb_client::NikkaType::{TypeInt, TypeString};
+use nikkadb_client::NikkaType::{TypeString, TypeU8};
 use nikkadb_client::NikkaTypeWrapper;
 use nikkadb_server::server::NikkaServer;
 use std::thread::sleep;
@@ -17,11 +17,11 @@ fn element_insertion_test() {
 
     let mut db = NikkaClient::with_port(&port);
 
-    db.set_string("value", "key");
-    assert_eq!(db.get_string("value"), Some(String::from("key")));
-    db.set_string("key", "value");
-    db.set_int("one", 1);
-    assert_eq!(db.get_int("one").unwrap(), 1);
+    db.set("value", "key");
+    assert_eq!(db.get::<String>("value"), Some(String::from("key")));
+    db.set("key", "value");
+    db.set("one", 1);
+    assert_eq!(db.get::<u8>("one").unwrap(), 1);
 }
 
 #[test]
@@ -36,10 +36,10 @@ fn backup_test() {
     let mut db = NikkaClient::with_port(&port);
 
     for _ in 0..200 {
-        db.set_string("key", "value");
+        db.set("key", "value");
     }
 
-    db.create_deque("numbers", TypeInt);
+    db.create_deque("numbers", TypeU8);
     db.push_first("numbers", NikkaTypeWrapper::NikkaInt(1));
     db.push_last("numbers", NikkaTypeWrapper::NikkaInt(2));
 
@@ -54,9 +54,9 @@ fn backup_test() {
 
     let mut db = NikkaClient::with_port(&port);
 
-    assert_eq!(db.get_string("key"), Some("value".to_string()));
+    assert_eq!(db.get("key"), Some("value".to_string()));
     assert_eq!(db.pop_first("numbers"), Some(1));
-    db.set_int("should be in wal", 12);
+    db.set("should be in wal", 12);
 
     let db = NikkaServer::with_port("0");
     let port = db.get_port().to_string();
@@ -67,7 +67,7 @@ fn backup_test() {
 
     let mut db = NikkaClient::with_port(&port);
 
-    assert_eq!(db.get_int("should be in wal"), Some(12));
+    assert_eq!(db.get::<u8>("should be in wal"), Some(12));
 }
 
 #[test]
@@ -81,9 +81,9 @@ fn element_delete_test() {
 
     let mut db = NikkaClient::with_port(&port);
 
-    db.set_string("value", "key");
+    db.set("value", "key");
     db.remove("value");
-    assert_eq!(db.get_string("value"), None);
+    assert_eq!(db.get::<String>("value"), None);
 }
 
 #[test]
@@ -98,13 +98,13 @@ fn transaction_test() {
     let mut client = NikkaClient::with_port(&port);
 
     client.begin_transaction();
-    client.set_string("key1", "value");
+    client.set("key1", "value");
     client.erase_transaction();
-    client.set_string("key2", "value");
+    client.set("key2", "value");
     client.send_transaction();
 
-    assert_eq!(client.get_string("key1"), None);
-    assert_eq!(client.get_string("key2").unwrap(), "value".to_string());
+    assert_eq!(client.get::<String>("key1"), None);
+    assert_eq!(client.get::<String>("key2").unwrap(), "value".to_string());
 }
 
 #[test]
@@ -118,8 +118,8 @@ fn regex_test() {
 
     let mut client = NikkaClient::with_port(&port);
 
-    client.set_string("alice:bob", "bob");
-    client.set_string("bob:alice", "alice");
+    client.set("alice:bob", "bob");
+    client.set("bob:alice", "alice");
     let mut query = client.get_regex("*:*");
     let mut real = vec!["alice:bob".to_string(), "bob:alice".to_string()];
     query.sort();
@@ -139,12 +139,12 @@ fn clear_test() {
 
     let mut client = NikkaClient::with_port(&port);
 
-    client.set_string("one", "two");
-    client.set_int("three", 3);
+    client.set("one", "two");
+    client.set("three", 3);
     client.clear_database();
 
-    assert_eq!(client.get_string("one"), None);
-    assert_eq!(client.get_int("three"), None);
+    assert_eq!(client.get::<String>("one"), None);
+    assert_eq!(client.get::<u8>("three"), None);
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn deque_test() {
 
     let mut client = NikkaClient::with_port(&port);
 
-    client.create_deque("numbers", TypeInt);
+    client.create_deque("numbers", TypeU8);
     client.push_first("numbers", NikkaTypeWrapper::NikkaInt(1));
     client.push_last("numbers", NikkaTypeWrapper::NikkaInt(2));
     assert_eq!(client.pop_first("numbers").unwrap_or(0), 1);

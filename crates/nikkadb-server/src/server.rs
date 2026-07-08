@@ -1,6 +1,6 @@
 use crate::database::NikkaDb;
 use crate::utils::trie::TrieNode;
-use crate::ClientState::{DEFAULT, TRANSACTION};
+use crate::ClientState::DEFAULT;
 use crate::{
     extract_serialized_key_value, process_pop_first_request, process_pop_last_request,
     process_push_first_request, process_push_last_request, Client,
@@ -9,11 +9,8 @@ use mio::net::TcpListener;
 use mio::{Events, Interest, Poll, Token};
 use shared::protocol::Response::Success;
 use shared::protocol::{form_packet, Request};
-use shared::Action::{CREATE, DELETE, POPF, POPL, PUSHF, PUSHL, TERASE};
-use shared::{
-    Action::{TDISCARD, TEND},
-    Serializable,
-};
+use shared::Action::{CREATE, DELETE, POPF, POPL, PUSHF, PUSHL};
+use shared::{Deserializable, Serializable};
 use std::collections::{HashMap, VecDeque};
 use std::fs::{File, OpenOptions};
 use std::io::ErrorKind::WouldBlock;
@@ -218,11 +215,7 @@ impl NikkaServer {
                             let mut database = mutex.lock().expect("cannot access db mutex");
                             let request = Request::from_bytes(bytes);
 
-                            if client.state == TRANSACTION
-                                && (request.action != TDISCARD
-                                    && request.action != TEND
-                                    && request.action != TERASE)
-                            {
+                            if client.should_be_transaction(&request) {
                                 client.queue.push_back(request);
                                 let mut wclient = &client.socket;
                                 let response_bytes = form_packet(&Success);
@@ -232,13 +225,7 @@ impl NikkaServer {
                                 continue;
                             }
 
-                            if request.action == CREATE
-                                || request.action == DELETE
-                                || request.action == PUSHL
-                                || request.action == PUSHF
-                                || request.action == POPL
-                                || request.action == POPF
-                            {
+                            if should_be_in_wal(&request) {
                                 let serialized_request = request.to_bytes();
                                 let mut wal =
                                     wal_mutex.lock().expect("cannot lock mutex in main thread");
@@ -352,4 +339,14 @@ fn update_from_wal(database: &mut NikkaDb, mut wal: &File) {
             _ => unreachable!(),
         }
     }
+}
+
+#[inline]
+fn should_be_in_wal(request: &Request) -> bool {
+    request.action == CREATE
+        || request.action == DELETE
+        || request.action == PUSHL
+        || request.action == PUSHF
+        || request.action == POPL
+        || request.action == POPF
 }

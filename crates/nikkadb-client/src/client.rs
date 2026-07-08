@@ -1,12 +1,12 @@
 use shared::{
     Action,
     ContentType::{NNone, NString},
-    Serializable,
+    Deserializable, Serializable,
 };
 
 pub use crate::NikkaClient;
 use crate::{
-    NikkaType, NikkaTypeWrapper,
+    Conversion, NikkaType, NikkaTypeWrapper,
     NikkaTypeWrapper::{NikkaInt, NikkaString},
 };
 use shared::protocol::Response::{ContentResponse, Error, Success};
@@ -38,67 +38,28 @@ impl NikkaClient {
         }
     }
 
-    pub fn set_string(&mut self, key: &str, value: &str) -> Result<(), String> {
-        let args = vec![key.to_string(), value.to_string()].to_bytes();
-
-        let request = Request {
-            action: Action::CREATE,
-            content_type: KeyValue(Box::new(NString)),
-            args,
-        };
-
-        let content = form_packet(&request);
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
-
-        let response = form_response(&mut self.connection, &mut self.buffer);
-
-        match response {
-            Success => Ok(()),
-            Error(message) => Err(message),
-            _ => panic!("broken request packet"),
-        }
-    }
-
-    pub fn get_string(&mut self, key: &str) -> Option<String> {
-        let key = key.to_string();
-        let mut args = Vec::new();
-        args.push(u8::try_from(key.len()).expect("key name is too big"));
-        args.extend_from_slice(key.as_bytes());
-
-        let request = Request {
-            action: Action::GET,
-            content_type: NString,
-            args,
-        };
-
-        let content = form_packet(&request);
-
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
-
-        let response = form_response(&mut self.connection, &mut self.buffer);
-
-        match response {
-            ContentResponse(content_type, content) => match content_type {
-                NString => Some(Vec::from_bytes(&content)[0].clone()),
-                _ => None,
-            },
-
-            _ => panic!("broken response packet"),
-        }
-    }
-
-    pub fn set_int(&mut self, key: &str, value: u8) -> Result<(), String> {
+    pub fn set<T>(&mut self, key: &str, value: T) -> Result<(), String>
+    where
+        T: Conversion + Serializable,
+    {
+        let db_type = T::convert();
+        let bytes = value.to_bytes();
         let mut args = vec![key.to_string()].to_bytes();
-        args.push(U8_SIZE);
-        args.push(value);
+        match db_type {
+            NString => {
+                args.push(u8::try_from(bytes.len()).expect("argument is too long"));
+                args.extend_from_slice(&bytes);
+            }
+            NInt => {
+                args.push(U8_SIZE);
+                args.extend_from_slice(&bytes);
+            }
+            _ => unreachable!(),
+        }
 
         let request = Request {
             action: Action::CREATE,
-            content_type: KeyValue(Box::new(NInt)),
+            content_type: KeyValue(Box::new(db_type)),
             args,
         };
 
@@ -116,15 +77,20 @@ impl NikkaClient {
         }
     }
 
-    pub fn get_int(&mut self, key: &str) -> Option<u8> {
+    pub fn get<T>(&mut self, key: &str) -> Option<T>
+    where
+        T: Serializable + Deserializable + Conversion,
+    {
         let key = key.to_string();
         let mut args = Vec::new();
         args.push(u8::try_from(key.len()).expect("key name is too big"));
         args.extend_from_slice(key.as_bytes());
 
+        let content_type = T::convert();
+
         let request = Request {
             action: Action::GET,
-            content_type: NInt,
+            content_type,
             args,
         };
 
@@ -138,8 +104,9 @@ impl NikkaClient {
 
         match response {
             ContentResponse(content_type, content) => match content_type {
-                NInt => Some(u8::from_bytes(&content)),
-                _ => None,
+                NNone => None,
+                NInt => Some(T::from_bytes(&content)),
+                _ => Some(T::from_bytes(&content[1..])),
             },
 
             _ => panic!("broken response packet"),
@@ -290,7 +257,7 @@ impl NikkaClient {
         args.extend_from_slice(key.as_bytes());
 
         let true_deque_type = match deque_type {
-            NikkaType::TypeInt => NInt,
+            NikkaType::TypeU8 => NInt,
             NikkaType::TypeString => NString,
         };
 
@@ -335,7 +302,7 @@ impl NikkaClient {
 
     pub fn pop_first<T>(&mut self, key: &str) -> Option<T>
     where
-        T: Serializable,
+        T: Deserializable,
     {
         let request = Request {
             action: POPF,
@@ -377,7 +344,7 @@ impl NikkaClient {
 
     pub fn pop_last<T>(&mut self, key: &str) -> Option<T>
     where
-        T: Serializable,
+        T: Deserializable,
     {
         let request = Request {
             action: POPL,
@@ -403,7 +370,7 @@ impl NikkaClient {
 fn form_push_request(key: &str, value: &NikkaTypeWrapper, action: Action) -> Request {
     let request = match value {
         NikkaInt(int) => {
-            let value_bytes = int.to_bytes();
+            let value_bytes = Serializable::to_bytes(int);
 
             let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
             args.push(u8::try_from(key.len()).expect("key is too big"));

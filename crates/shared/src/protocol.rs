@@ -1,6 +1,6 @@
 use crate::protocol::Response::{ContentResponse, Error, Success};
 use crate::ContentType::{KeyValue, NDeque};
-use crate::{Action, ContentType, Serializable, Value};
+use crate::{Action, ContentType, Deserializable, Serializable, Value};
 use std::collections::HashMap;
 use std::io::Read;
 use std::net::TcpStream;
@@ -47,7 +47,9 @@ impl Serializable for Response {
 
         packet
     }
+}
 
+impl Deserializable for Response {
     fn from_bytes(packet: &[u8]) -> Self {
         match packet[0] {
             0 => {
@@ -90,7 +92,9 @@ impl<S: std::hash::BuildHasher + Default> Serializable for HashMap<String, Value
         }
         byte_repr
     }
+}
 
+impl<S: std::hash::BuildHasher + Default> Deserializable for HashMap<String, Value, S> {
     fn from_bytes(content: &[u8]) -> Self {
         let mut index = 0;
         let mut hm = HashMap::default();
@@ -149,7 +153,9 @@ impl Serializable for Request {
 
         packet
     }
+}
 
+impl Deserializable for Request {
     fn from_bytes(packet: &[u8]) -> Request {
         let mut index = 0;
 
@@ -210,8 +216,6 @@ where
 }
 
 pub fn form_response(connection: &mut TcpStream, buffer: &mut [u8]) -> Response {
-    //let mut buffer = vec![0u8; 1];
-
     connection
         .read_exact(buffer)
         .expect("error occurred while reading a packet");
@@ -227,7 +231,7 @@ pub fn form_response(connection: &mut TcpStream, buffer: &mut [u8]) -> Response 
 
 pub fn extract_key_value<T>(content: &[u8]) -> (String, T)
 where
-    T: Serializable,
+    T: Deserializable,
 {
     let mut index = 0;
     let k_size = content[index] as usize;

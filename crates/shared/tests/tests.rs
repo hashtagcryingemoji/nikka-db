@@ -2,7 +2,7 @@ use shared::protocol::Response::{ContentResponse, Error};
 use shared::protocol::{Request, Response};
 use shared::Action::CREATE;
 use shared::ContentType::{KeyValue, NString};
-use shared::Serializable;
+use shared::{Deserializable, Serializable};
 use std::collections::HashMap;
 
 #[test]

@@ -7,7 +7,7 @@ use shared::Action::{
     CLEAR, CREATE, DELETE, GET, POPF, POPL, PUSHF, PUSHL, REGEX, TDISCARD, TEND, TERASE, TSTART,
 };
 use shared::ContentType::{KeyValue, NDeque, NInt, NNone, NString, NVector};
-use shared::{ContentType, Serializable};
+use shared::{ContentType, Deserializable, Serializable};
 use std::collections::VecDeque;
 
 mod database;
@@ -106,6 +106,12 @@ impl Client {
 
         Success
     }
+
+    #[inline]
+    fn should_be_transaction(&self, request: &Request) -> bool {
+        self.state == TRANSACTION
+            && (request.action != TDISCARD && request.action != TEND && request.action != TERASE)
+    }
 }
 
 fn process_in_transaction(request: Request, snapshot: &mut NikkaDb) -> Response {
@@ -202,6 +208,27 @@ fn process_get_request(
                 ContentResponse(NInt, v)
             }
 
+            None => ContentResponse(NNone, vec![]),
+        },
+        NNone => match database.get(key) {
+            Some(value) => {
+                let content_type = value.0;
+                match content_type {
+                    NString => {
+                        let v = vec![String::from_bytes(&value.1)];
+                        ContentResponse(NString, v.to_bytes())
+                    }
+                    NInt => {
+                        let v = vec![u8::from_bytes(&value.1)];
+                        ContentResponse(NInt, v)
+                    }
+                    _ => {
+                        return Err(Error(format!(
+                            "invalid type to take from bd: {content_type:?}"
+                        )))
+                    }
+                }
+            }
             None => ContentResponse(NNone, vec![]),
         },
         _ => unreachable!(),

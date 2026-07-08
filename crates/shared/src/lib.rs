@@ -20,6 +20,9 @@ pub enum ContentType {
 
 pub trait Serializable {
     fn to_bytes(&self) -> Vec<u8>;
+}
+
+pub trait Deserializable {
     fn from_bytes(content: &[u8]) -> Self;
 }
 
@@ -121,9 +124,11 @@ impl Serializable for String {
     fn to_bytes(&self) -> Vec<u8> {
         self.as_bytes().to_vec()
     }
+}
 
+impl Deserializable for String {
     fn from_bytes(content: &[u8]) -> Self {
-        String::from_utf8(content.to_vec()).expect("broken bytes")
+        String::from_utf8(Vec::from(content)).expect("broken bytes")
     }
 }
 
@@ -139,7 +144,9 @@ impl Serializable for Vec<String> {
 
         v
     }
+}
 
+impl Deserializable for Vec<String> {
     fn from_bytes(content: &[u8]) -> Self {
         let mut v = Vec::new();
         let mut index = 0;
@@ -161,8 +168,16 @@ impl Serializable for u8 {
     fn to_bytes(&self) -> Vec<u8> {
         vec![*self]
     }
+}
 
+impl Deserializable for u8 {
     fn from_bytes(content: &[u8]) -> Self {
         content[0]
+    }
+}
+
+impl Serializable for &str {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.as_bytes().to_vec()
     }
 }

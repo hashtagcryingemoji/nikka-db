@@ -4,7 +4,7 @@
 ![Rust](https://img.shields.io/badge/Rust-stable-orange)
 ![Status](https://img.shields.io/badge/status-experimental-red)
 
-Lightweight, almost zero-dependency key-value database
+Lightweight, simple key-value database
 
 # Features
 

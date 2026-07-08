@@ -6,9 +6,9 @@ use std::thread::{sleep, spawn};
 use std::time::Duration;
 
 fn crud(client: &mut NikkaClient, key: &str, value: u8) {
-    client.set_int(key, value);
-    let int = client.get_int(key).unwrap();
-    client.set_int(key, value + 1);
+    client.set(key, value);
+    let int = client.get::<u8>(key).unwrap();
+    client.set(key, value + 1);
     client.remove(key);
     assert_eq!(value, int);
 }
