@@ -27,7 +27,7 @@ fn basic() {
     let _ = client.set::<&str>("language:framework:rust", "axum");
 
     println!("all about java");
-    for query in client.get_regex("language:*:java") {
+    for query in client.get_regex("language:*:java").unwrap() {
         println!(
             "{} - {}",
             query,
@@ -38,7 +38,7 @@ fn basic() {
     }
 
     println!("take a look on some of the frameworks");
-    for query in client.get_regex("language:framework:*") {
+    for query in client.get_regex("language:framework:*").unwrap() {
         println!(
             "{} - {}",
             query,
@@ -49,7 +49,7 @@ fn basic() {
     }
 
     println!("everything about everyone");
-    for query in client.get_regex("*:*:*") {
+    for query in client.get_regex("*:*:*").unwrap() {
         println!(
             "{} - {}",
             query,
@@ -63,7 +63,7 @@ fn basic() {
     let _ = client.set("language:framework:javascript", "react");
 
     println!("know the difference!");
-    for query in client.get_regex("*:*:%%%%script") {
+    for query in client.get_regex("*:*:%%%%script").unwrap() {
         println!(
             "{} - {}",
             query,
@@ -74,7 +74,7 @@ fn basic() {
     }
 
     println!("so similar but so different");
-    for query in client.get_regex("*:framework:j*") {
+    for query in client.get_regex("*:framework:j*").unwrap() {
         println!(
             "{} - {}",
             query,

@@ -1,6 +1,6 @@
 type Pair<'a> = (String, &'a TrieNode);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TrieNode {
     children: Vec<TrieNode>,
     char: char,

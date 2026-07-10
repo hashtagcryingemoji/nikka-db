@@ -9,6 +9,9 @@ use shared::Action::{
 use shared::ContentType::{KeyValue, NDeque, NInt, NNone, NString, NVector};
 use shared::{ContentType, Deserializable, Serializable};
 use std::collections::VecDeque;
+use std::fs::File;
+use std::io::Write;
+use std::sync::{Arc, Mutex};
 
 mod database;
 pub mod server;
@@ -32,29 +35,34 @@ enum ClientState {
 }
 
 impl Client {
-    fn process_action(&mut self, request: Request, database: &mut NikkaDb) -> Response {
-        let action = request.action;
-        let args = request.args;
+    fn process_action(
+        &mut self,
+        request: &Request,
+        database: &mut NikkaDb,
+        wal: &Arc<Mutex<File>>,
+    ) -> Response {
+        let action = &request.action;
+        let args = &request.args;
 
-        match action {
+        let response = match action {
             GET => {
-                let content_type = request.content_type;
-                process_get_request(database, &args, &content_type).unwrap_or_else(|value| value)
+                let content_type = &request.content_type;
+                process_get_request(database, args, content_type).unwrap_or_else(|value| value)
             }
             CREATE => {
-                let content_type = request.content_type;
+                let content_type = request.content_type.clone();
 
-                process_create_request(database, &args, content_type);
+                process_create_request(database, args, content_type);
 
                 Success
             }
             DELETE => {
-                process_delete_request(database, &args);
+                process_delete_request(database, args);
 
                 Success
             }
             REGEX => {
-                let regex = &Vec::from_bytes(&args)[0];
+                let regex = &Vec::from_bytes(args)[0];
                 let content = database.find_regex(regex).to_bytes();
                 ContentResponse(NVector(Box::new(NString)), content)
             }
@@ -64,7 +72,7 @@ impl Client {
             }
             TEND => {
                 self.state = DEFAULT;
-                self.process_transaction(database)
+                self.process_transaction(database, wal)
             }
             TERASE => {
                 self.queue.clear();
@@ -79,29 +87,54 @@ impl Client {
                 database.clear();
                 Success
             }
-            POPF => process_pop_first_request(database, &args),
+            POPF => process_pop_first_request(database, args),
 
-            POPL => process_pop_last_request(database, &args),
+            POPL => process_pop_last_request(database, args),
 
             PUSHF => {
-                let content_type = request.content_type;
+                let content_type = request.content_type.clone();
 
-                process_push_first_request(database, &args, content_type)
-                    .unwrap_or_else(|value| value)
+                process_push_first_request(database, args, content_type)
             }
             PUSHL => {
-                let content_type = request.content_type;
+                let content_type = request.content_type.clone();
 
-                process_push_last_request(database, &args, content_type)
-                    .unwrap_or_else(|value| value)
+                process_push_last_request(database, args, content_type)
             }
+        };
+
+        if response == Success && self.should_be_in_wal(request) {
+            let serialized_request = request.to_bytes();
+            let mut wal = wal.lock().expect("cannot lock mutex in main thread");
+            wal.write_all(&serialized_request)
+                .expect("cannot write to wal");
+            wal.flush().expect("cannot write to wal");
         }
+
+        response
     }
 
-    fn process_transaction(&mut self, snapshot: &mut NikkaDb) -> Response {
+    fn process_transaction(&mut self, database: &mut NikkaDb, wal: &Arc<Mutex<File>>) -> Response {
+        let mut snapshot = database.clone();
+
         for request in &self.queue {
             let request = request.clone();
-            process_in_transaction(request, snapshot);
+            match process_in_transaction(request, &mut snapshot) {
+                Success => {}
+                Error(mes) => return Error(mes),
+                _ => unreachable!(),
+            };
+        }
+
+        for request in &self.queue {
+            let request = request.clone();
+            let serialized_request = request.to_bytes();
+            let mut wal = wal.lock().expect("cannot lock mutex in main thread");
+            wal.write_all(&serialized_request)
+                .expect("cannot write to wal");
+            wal.flush().expect("cannot write to wal");
+            drop(wal);
+            process_in_transaction(request, database);
         }
 
         Success
@@ -109,8 +142,18 @@ impl Client {
 
     #[inline]
     fn should_be_transaction(&self, request: &Request) -> bool {
-        self.state == TRANSACTION
-            && (request.action != TDISCARD && request.action != TEND && request.action != TERASE)
+        self.state == TRANSACTION && (request.action == CREATE || request.action == DELETE)
+    }
+
+    #[inline]
+    fn should_be_in_wal(&self, request: &Request) -> bool {
+        (request.action == CREATE
+            || request.action == DELETE
+            || request.action == PUSHL
+            || request.action == PUSHF
+            || request.action == POPL
+            || request.action == POPF)
+            && self.state != TRANSACTION
     }
 }
 
@@ -124,7 +167,7 @@ fn process_in_transaction(request: Request, snapshot: &mut NikkaDb) -> Response 
             if let (Some(key), Some(value)) = (args_iter.next(), args_iter.next()) {
                 snapshot.add(key, (NString, value.as_bytes().to_vec()));
             } else {
-                panic!("incorrect request");
+                return Error("incorrect request".to_string());
             }
 
             Success
@@ -273,10 +316,10 @@ fn process_push_last_request(
     database: &mut NikkaDb,
     args: &[u8],
     content_type: ContentType,
-) -> Result<Response, Response> {
+) -> Response {
     let (mut value_bytes, key, deque) = get_deque_and_push_value(args, database);
 
-    Ok(match deque {
+    match deque {
         None => Error("invalid key for deque".to_string()),
 
         Some(mut value) => {
@@ -285,7 +328,7 @@ fn process_push_last_request(
             };
 
             if value.0 != NDeque(deque_type.clone()) {
-                return Err(Error("invalid key for deque".to_string()));
+                return Error("invalid key for deque".to_string());
             }
 
             match *deque_type {
@@ -296,7 +339,9 @@ fn process_push_last_request(
                 }
 
                 NString => {
-                    let sep = u8::try_from(value_bytes.len()).expect("value is too big to store");
+                    let Ok(sep) = u8::try_from(value_bytes.len()) else {
+                        return Error("key is too long".to_string());
+                    };
                     value_bytes.push(sep);
                     value_bytes.insert(0, sep);
                     value.1.extend_from_slice(&value_bytes);
@@ -307,17 +352,17 @@ fn process_push_last_request(
                 _ => unreachable!(),
             }
         }
-    })
+    }
 }
 
 fn process_push_first_request(
     database: &mut NikkaDb,
     args: &[u8],
     content_type: ContentType,
-) -> Result<Response, Response> {
+) -> Response {
     let (mut value_bytes, key, deque) = get_deque_and_push_value(args, database);
 
-    Ok(match deque {
+    match deque {
         None => Error("invalid key for deque".to_string()),
 
         Some(mut value) => {
@@ -326,7 +371,7 @@ fn process_push_first_request(
             };
 
             if value.0 != NDeque(deque_type.clone()) {
-                return Err(Error("invalid key for deque".to_string()));
+                return Error("invalid key for deque".to_string());
             }
 
             match *deque_type {
@@ -337,7 +382,9 @@ fn process_push_first_request(
                 }
 
                 NString => {
-                    let sep = u8::try_from(value_bytes.len()).expect("value is too big to store");
+                    let Ok(sep) = u8::try_from(value_bytes.len()) else {
+                        return Error("key is too long".to_string());
+                    };
                     value_bytes.push(sep);
                     value_bytes.insert(0, sep);
                     value.1.splice(0..0, value_bytes);
@@ -348,5 +395,5 @@ fn process_push_first_request(
                 _ => unreachable!(),
             }
         }
-    })
+    }
 }

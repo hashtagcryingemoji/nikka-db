@@ -1,7 +1,8 @@
-use nikkadb_client::client::NikkaClient;
 use nikkadb_client::NikkaType::{TypeString, TypeU8};
-use nikkadb_client::NikkaTypeWrapper;
+use nikkadb_client::{NikkaClient, NikkaTypeWrapper};
 use nikkadb_server::server::NikkaServer;
+use std::fs::OpenOptions;
+use std::io::{Seek, SeekFrom};
 use std::thread::sleep;
 use std::thread::spawn;
 use std::time::Duration;
@@ -26,6 +27,7 @@ fn element_insertion_test() {
 
 #[test]
 fn backup_test() {
+    setup_files();
     let db = NikkaServer::with_port("0");
     let port = db.get_port().to_string();
 
@@ -98,9 +100,9 @@ fn transaction_test() {
     let mut client = NikkaClient::with_port(&port);
 
     client.begin_transaction();
-    client.set("key1", "value");
+    client.set("key1", "value").unwrap();
     client.erase_transaction();
-    client.set("key2", "value");
+    client.set("key2", "value").unwrap();
     client.send_transaction();
 
     assert_eq!(client.get::<String>("key1"), None);
@@ -120,7 +122,7 @@ fn regex_test() {
 
     client.set("alice:bob", "bob");
     client.set("bob:alice", "alice");
-    let mut query = client.get_regex("*:*");
+    let mut query = client.get_regex("*:*").unwrap();
     let mut real = vec!["alice:bob".to_string(), "bob:alice".to_string()];
     query.sort();
     real.sort();
@@ -180,4 +182,58 @@ fn deque_test() {
         client.pop_last("strings").unwrap_or("0".to_string()),
         "0".to_string()
     );
+}
+
+#[test]
+fn transaction_wal_test() {
+    setup_files();
+    let db = NikkaServer::with_port("0");
+    let port = db.get_port().to_string();
+
+    spawn(|| db.run());
+
+    sleep(Duration::from_millis(100));
+
+    let mut client = NikkaClient::with_port(&port);
+
+    client.begin_transaction();
+    client.set("key1", "value").unwrap();
+    client.erase_transaction();
+    client.set("key2", "value").unwrap();
+    client.send_transaction();
+
+    assert_eq!(client.get::<String>("key1"), None);
+    assert_eq!(client.get::<String>("key2").unwrap(), "value".to_string());
+
+    sleep(Duration::from_secs(1));
+
+    let db = NikkaServer::with_port("0");
+    let port = db.get_port().to_string();
+
+    spawn(|| db.run());
+
+    sleep(Duration::from_millis(100));
+
+    let mut client = NikkaClient::with_port(&port);
+    assert_eq!(client.get::<String>("key1"), None);
+    assert_eq!(client.get::<String>("key2").unwrap(), "value".to_string());
+}
+
+fn setup_files() {
+    let log = OpenOptions::new().read(true).write(true).open("log.nikka");
+
+    if let Ok(mut log_file) = log {
+        log_file.set_len(0);
+        log_file.seek(SeekFrom::Start(0));
+    }
+
+    let mut backup = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("backup.nikka");
+
+    if let Ok(mut backup_file) = backup {
+        backup_file.set_len(0);
+        backup_file.seek(SeekFrom::Start(0));
+    }
 }

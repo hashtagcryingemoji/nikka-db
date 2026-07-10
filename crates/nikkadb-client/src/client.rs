@@ -64,16 +64,16 @@ impl NikkaClient {
         };
 
         let content = form_packet(&request);
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        let Ok(()) = self.connection.write_all(&content) else {
+            return Err("cannot write to server".to_string());
+        };
 
         let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
             Error(message) => Err(message),
-            _ => panic!("broken request packet"),
+            _ => Err("broken request packet".to_string()),
         }
     }
 
@@ -109,7 +109,8 @@ impl NikkaClient {
                 _ => Some(T::from_bytes(&content[1..])),
             },
 
-            _ => panic!("broken response packet"),
+            //todo(err case should be processed more explicit than just returning none)
+            _ => None,
         }
     }
 
@@ -136,11 +137,11 @@ impl NikkaClient {
         match response {
             Success => Ok(()),
             Error(message) => Err(message),
-            _ => panic!("broken request packet"),
+            _ => Err("broken request packet".to_string()),
         }
     }
 
-    pub fn get_regex(&mut self, regex: &str) -> Vec<String> {
+    pub fn get_regex(&mut self, regex: &str) -> Option<Vec<String>> {
         let regex = regex.to_string();
         let mut args = Vec::new();
         args.push(u8::try_from(regex.len()).expect("argument is too big"));
@@ -162,12 +163,13 @@ impl NikkaClient {
 
         match response {
             ContentResponse(content_type, content) => match content_type {
-                NVector(_) => Vec::from_bytes(&content),
+                NVector(_) => Some(Vec::from_bytes(&content)),
 
-                _ => Vec::new(),
+                _ => Some(Vec::new()),
             },
 
-            _ => panic!("broken response packet"),
+            //todo(err case should be processed more explicit than just returning none)
+            _ => None,
         }
     }
 

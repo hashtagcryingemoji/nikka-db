@@ -16,12 +16,9 @@ use std::fs::{File, OpenOptions};
 use std::io::ErrorKind::WouldBlock;
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::mpsc::TryRecvError;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::thread::sleep;
-use std::time::Duration;
 
 pub struct NikkaServer {
     database: NikkaDb,
@@ -225,17 +222,10 @@ impl NikkaServer {
                                 continue;
                             }
 
-                            if should_be_in_wal(&request) {
-                                let serialized_request = request.to_bytes();
-                                let mut wal =
-                                    wal_mutex.lock().expect("cannot lock mutex in main thread");
-                                wal.write_all(&serialized_request)
-                                    .expect("cannot write to wal");
-                                wal.flush().expect("cannot write to wal");
-                            }
+                            let response =
+                                client.process_action(&request, &mut database, &wal_mutex);
 
-                            let response_bytes =
-                                form_packet(&client.process_action(request, &mut database));
+                            let response_bytes = form_packet(&response);
 
                             // add response bytes len to form a readable packet
 
@@ -251,6 +241,7 @@ impl NikkaServer {
                                 self.backup_notifier.send(true).expect(
                                     "cannot send backup notification, probably side thread is dead",
                                 );
+                                self.backup_counter = 0;
                             }
                         }
                     }
@@ -267,30 +258,26 @@ fn backup_control(
     wal: &Arc<Mutex<File>>,
 ) {
     loop {
-        match receiver.try_recv() {
-            Ok(_) => {
-                let db = database
-                    .lock()
-                    .expect("error when trying to access a db mutex");
-                let hm = db.storage.to_bytes();
-                drop(db);
+        while let Ok(_) = receiver.recv() {
+            let db = database
+                .lock()
+                .expect("error when trying to access a db mutex");
+            let hm = db.storage.to_bytes();
+            drop(db);
 
-                let wal = wal.lock().expect("error while locking wal");
-                wal.set_len(0).expect("cannot truncate wal");
-                drop(wal);
+            let mut wal = wal.lock().expect("error while locking wal");
+            wal.set_len(0).expect("cannot truncate wal");
+            wal.seek(SeekFrom::Start(0)).expect("cannot access wal");
+            drop(wal);
 
-                backup_file.set_len(0).expect("cannot access file");
-                backup_file
-                    .seek(SeekFrom::Start(0))
-                    .expect("cannot access file");
-                let mut buffer = BufWriter::new(&backup_file);
-                buffer.write_all(&hm).expect("cannot access file");
-                buffer.flush().expect("cannot access file");
-            }
-            Err(TryRecvError::Disconnected) => {
-                break;
-            }
-            Err(TryRecvError::Empty) => sleep(Duration::from_micros(100)),
+            backup_file
+                .seek(SeekFrom::Start(0))
+                .expect("cannot access file");
+            backup_file.set_len(0).expect("cannot access file");
+
+            let mut buffer = BufWriter::new(&backup_file);
+            buffer.write_all(&hm).expect("cannot access file");
+            buffer.flush().expect("cannot access file");
         }
     }
 }
@@ -339,14 +326,4 @@ fn update_from_wal(database: &mut NikkaDb, mut wal: &File) {
             _ => unreachable!(),
         }
     }
-}
-
-#[inline]
-fn should_be_in_wal(request: &Request) -> bool {
-    request.action == CREATE
-        || request.action == DELETE
-        || request.action == PUSHL
-        || request.action == PUSHF
-        || request.action == POPL
-        || request.action == POPF
 }

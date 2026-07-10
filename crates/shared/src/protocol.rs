@@ -51,6 +51,7 @@ impl Serializable for Response {
 
 impl Deserializable for Response {
     fn from_bytes(packet: &[u8]) -> Self {
+
         match packet[0] {
             0 => {
                 let content_type = ContentType::try_from(packet[1]).expect("broken packet");
@@ -90,6 +91,7 @@ impl<S: std::hash::BuildHasher + Default> Serializable for HashMap<String, Value
             byte_repr.push(v_len);
             byte_repr.extend_from_slice(&v.1);
         }
+
         byte_repr
     }
 }

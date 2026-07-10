@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 type Value = (ContentType, Vec<u8>);
 
+#[derive(Clone)]
 pub struct NikkaDb {
     pub(crate) storage: HashMap<String, Value>,
     pub(crate) trie: TrieNode,
@@ -21,8 +22,7 @@ impl NikkaDb {
         self.storage.remove(key);
     }
 
-    pub fn get(&self, key: &str) -> Option<Value>
-where {
+    pub fn get(&self, key: &str) -> Option<Value> {
         self.storage.get(key).cloned()
     }
 
@@ -32,6 +32,7 @@ where {
 
     pub fn clear(&mut self) {
         self.storage.clear();
+        self.trie = TrieNode::new();
     }
 
     pub fn pop_first(&mut self, key: &str) -> Option<Value> {
