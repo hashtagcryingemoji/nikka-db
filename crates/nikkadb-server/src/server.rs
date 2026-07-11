@@ -17,7 +17,7 @@ use std::io::ErrorKind::WouldBlock;
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 pub struct NikkaServer {
@@ -123,15 +123,15 @@ impl NikkaServer {
             .register(&mut server, SERVER, Interest::READABLE)
             .expect("cannot register server");
 
-        let mutex = Arc::new(Mutex::new(self.database));
-        let mutex_clone = Arc::clone(&mutex);
+        let mut rw_lock = Arc::new(RwLock::new(self.database));
+        let rw_lock_clone = Arc::clone(&rw_lock);
 
         let wal_mutex = Arc::new(Mutex::new(self.wal));
         let wal_mutex_clone = Arc::clone(&wal_mutex);
 
         thread::spawn(move || {
             backup_control(
-                &mutex_clone,
+                &rw_lock_clone,
                 &self.backup_receiver,
                 self.backup,
                 &wal_mutex_clone,
@@ -209,7 +209,6 @@ impl NikkaServer {
                         }
 
                         for bytes in &data_vec {
-                            let mut database = mutex.lock().expect("cannot access db mutex");
                             let request = Request::from_bytes(bytes);
 
                             if client.should_be_transaction(&request) {
@@ -223,7 +222,7 @@ impl NikkaServer {
                             }
 
                             let response =
-                                client.process_action(&request, &mut database, &wal_mutex);
+                                client.process_action(&request, &mut rw_lock, &wal_mutex);
 
                             let response_bytes = form_packet(&response);
 
@@ -252,7 +251,7 @@ impl NikkaServer {
 }
 
 fn backup_control(
-    database: &Arc<Mutex<NikkaDb>>,
+    database: &Arc<RwLock<NikkaDb>>,
     receiver: &Receiver<bool>,
     mut backup_file: File,
     wal: &Arc<Mutex<File>>,
@@ -260,7 +259,7 @@ fn backup_control(
     loop {
         while let Ok(_) = receiver.recv() {
             let db = database
-                .lock()
+                .read()
                 .expect("error when trying to access a db mutex");
             let hm = db.storage.to_bytes();
             drop(db);

@@ -51,7 +51,6 @@ impl Serializable for Response {
 
 impl Deserializable for Response {
     fn from_bytes(packet: &[u8]) -> Self {
-
         match packet[0] {
             0 => {
                 let content_type = ContentType::try_from(packet[1]).expect("broken packet");

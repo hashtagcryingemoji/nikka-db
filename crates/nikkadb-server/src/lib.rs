@@ -11,7 +11,7 @@ use shared::{ContentType, Deserializable, Serializable};
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 mod database;
 pub mod server;
@@ -38,7 +38,7 @@ impl Client {
     fn process_action(
         &mut self,
         request: &Request,
-        database: &mut NikkaDb,
+        database: &mut Arc<RwLock<NikkaDb>>,
         wal: &Arc<Mutex<File>>,
     ) -> Response {
         let action = &request.action;
@@ -47,22 +47,26 @@ impl Client {
         let response = match action {
             GET => {
                 let content_type = &request.content_type;
-                process_get_request(database, args, content_type).unwrap_or_else(|value| value)
+                process_get_request(database, args, content_type)
             }
             CREATE => {
                 let content_type = request.content_type.clone();
-
-                process_create_request(database, args, content_type);
+                let mut database = database.write().unwrap();
+                process_create_request(&mut *database, args, content_type);
 
                 Success
             }
             DELETE => {
-                process_delete_request(database, args);
+                let mut database = database.write().unwrap();
+                process_delete_request(&mut *database, args);
 
                 Success
             }
             REGEX => {
-                let regex = &Vec::from_bytes(args)[0];
+                let size = args[0] as usize;
+                let regex_bytes = &args[1..size + 1];
+                let regex = str::from_utf8(regex_bytes).expect("");
+                let database = database.read().expect("cannot lock mutex");
                 let content = database.find_regex(regex).to_bytes();
                 ContentResponse(NVector(Box::new(NString)), content)
             }
@@ -84,22 +88,29 @@ impl Client {
                 Success
             }
             CLEAR => {
+                let mut database = database.write().expect("cannot lock mutex");
                 database.clear();
                 Success
             }
-            POPF => process_pop_first_request(database, args),
+            POPF => {
+                let mut database = database.write().unwrap();
+                process_pop_first_request(&mut *database, args)
+            }
 
-            POPL => process_pop_last_request(database, args),
+            POPL => {
+                let mut database = database.write().unwrap();
+                process_pop_last_request(&mut *database, args)
+            }
 
             PUSHF => {
                 let content_type = request.content_type.clone();
-
-                process_push_first_request(database, args, content_type)
+                let mut database = database.write().unwrap();
+                process_push_first_request(&mut *database, args, content_type)
             }
             PUSHL => {
                 let content_type = request.content_type.clone();
-
-                process_push_last_request(database, args, content_type)
+                let mut database = database.write().unwrap();
+                process_push_last_request(&mut *database, args, content_type)
             }
         };
 
@@ -114,8 +125,13 @@ impl Client {
         response
     }
 
-    fn process_transaction(&mut self, database: &mut NikkaDb, wal: &Arc<Mutex<File>>) -> Response {
-        let mut snapshot = database.clone();
+    fn process_transaction(
+        &mut self,
+        database: &mut Arc<RwLock<NikkaDb>>,
+        wal: &Arc<Mutex<File>>,
+    ) -> Response {
+        let unlocked_database = database.read().expect("cannot lock mutex");
+        let mut snapshot = unlocked_database.clone();
 
         for request in &self.queue {
             let request = request.clone();
@@ -126,6 +142,9 @@ impl Client {
             };
         }
 
+        drop(unlocked_database);
+        let mut database = database.write().expect("cannot unlock mutex");
+
         for request in &self.queue {
             let request = request.clone();
             let serialized_request = request.to_bytes();
@@ -134,7 +153,7 @@ impl Client {
                 .expect("cannot write to wal");
             wal.flush().expect("cannot write to wal");
             drop(wal);
-            process_in_transaction(request, database);
+            process_in_transaction(request, &mut *database);
         }
 
         Success
@@ -173,7 +192,9 @@ fn process_in_transaction(request: Request, snapshot: &mut NikkaDb) -> Response 
             Success
         }
         DELETE => {
-            let key = &Vec::from_bytes(&args)[0];
+            let size = args[0] as usize;
+            let key_bytes = &args[1..=size];
+            let key = str::from_utf8(key_bytes).expect("");
             snapshot.delete(key);
 
             Success
@@ -228,11 +249,14 @@ fn get_deque_and_push_value(
 }
 
 fn process_get_request(
-    database: &NikkaDb,
+    database: &mut Arc<RwLock<NikkaDb>>,
     args: &[u8],
     content_type: &ContentType,
-) -> Result<Response, Response> {
-    let key = &Vec::from_bytes(args)[0];
+) -> Response {
+    let size = args[0] as usize;
+    let key_bytes = &args[1..=size];
+    let key = str::from_utf8(key_bytes).expect("");
+    let database = database.read().expect("cannot block database");
     let response = match content_type {
         NString => match database.get(key) {
             Some(value) => {
@@ -244,7 +268,7 @@ fn process_get_request(
         NInt => match database.get(key) {
             Some(value) => {
                 if value.0 != NInt {
-                    return Err(Error("invalid key for string".to_string()));
+                    return Error("invalid key for string".to_string());
                 }
 
                 let v = vec![u8::from_bytes(&value.1)];
@@ -265,11 +289,7 @@ fn process_get_request(
                         let v = vec![u8::from_bytes(&value.1)];
                         ContentResponse(NInt, v)
                     }
-                    _ => {
-                        return Err(Error(format!(
-                            "invalid type to take from bd: {content_type:?}"
-                        )))
-                    }
+                    _ => return Error(format!("invalid type to take from bd: {content_type:?}")),
                 }
             }
             None => ContentResponse(NNone, vec![]),
@@ -277,7 +297,7 @@ fn process_get_request(
         _ => unreachable!(),
     };
 
-    Ok(response)
+    response
 }
 
 fn process_create_request(database: &mut NikkaDb, args: &[u8], content_type: ContentType) {
@@ -286,7 +306,9 @@ fn process_create_request(database: &mut NikkaDb, args: &[u8], content_type: Con
 }
 
 fn process_delete_request(database: &mut NikkaDb, args: &[u8]) {
-    let key = &Vec::from_bytes(args)[0];
+    let size = args[0] as usize;
+    let key_bytes = &args[1..=size];
+    let key = str::from_utf8(key_bytes).expect("");
     database.delete(key);
 }
 

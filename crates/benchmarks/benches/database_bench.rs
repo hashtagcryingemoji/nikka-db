@@ -15,6 +15,7 @@ fn crud(client: &mut NikkaClient, key: &str, value: u8) {
 
 fn benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("bench");
+    group.warm_up_time(Duration::from_secs(5));
 
     let db = NikkaServer::with_port("0");
     let port = db.get_port().to_string();
