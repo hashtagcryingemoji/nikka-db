@@ -15,9 +15,6 @@ use std::sync::{Arc, Mutex, RwLock};
 
 mod database;
 pub mod server;
-#[cfg(not(feature = "utils_for_test"))]
-pub(crate) mod utils;
-#[cfg(feature = "utils_for_test")]
 pub mod utils;
 
 type Value = (ContentType, Vec<u8>);
@@ -52,19 +49,19 @@ impl Client {
             CREATE => {
                 let content_type = request.content_type.clone();
                 let mut database = database.write().unwrap();
-                process_create_request(&mut *database, args, content_type);
+                process_create_request(&mut database, args, content_type);
 
                 Success
             }
             DELETE => {
                 let mut database = database.write().unwrap();
-                process_delete_request(&mut *database, args);
+                process_delete_request(&mut database, args);
 
                 Success
             }
             REGEX => {
                 let size = args[0] as usize;
-                let regex_bytes = &args[1..size + 1];
+                let regex_bytes = &args[1..=size];
                 let regex = str::from_utf8(regex_bytes).expect("");
                 let database = database.read().expect("cannot lock mutex");
                 let content = database.find_regex(regex).to_bytes();
@@ -94,23 +91,23 @@ impl Client {
             }
             POPF => {
                 let mut database = database.write().unwrap();
-                process_pop_first_request(&mut *database, args)
+                process_pop_first_request(&mut database, args)
             }
 
             POPL => {
                 let mut database = database.write().unwrap();
-                process_pop_last_request(&mut *database, args)
+                process_pop_last_request(&mut database, args)
             }
 
             PUSHF => {
                 let content_type = request.content_type.clone();
                 let mut database = database.write().unwrap();
-                process_push_first_request(&mut *database, args, content_type)
+                process_push_first_request(&mut database, args, content_type)
             }
             PUSHL => {
                 let content_type = request.content_type.clone();
                 let mut database = database.write().unwrap();
-                process_push_last_request(&mut *database, args, content_type)
+                process_push_last_request(&mut database, args, content_type)
             }
         };
 

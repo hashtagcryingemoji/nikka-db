@@ -2,17 +2,14 @@ use nikkadb_client::client::NikkaClient;
 use nikkadb_client::NikkaType::TypeString;
 use nikkadb_client::NikkaTypeWrapper;
 use nikkadb_server::server::NikkaServer;
+use nikkadb_server::utils::builder::NikkaBuilder;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
 
-fn main() {
-    basic();
-    transaction();
-    deque();
-}
+fn main() {}
 
 fn basic() {
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -91,7 +88,7 @@ fn basic() {
 }
 
 fn transaction() {
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -100,11 +97,11 @@ fn transaction() {
 
     let mut client = NikkaClient::with_port(&port);
 
-    client.begin_transaction();
+    let _ = client.begin_transaction();
     let _ = client.set("one", 1);
-    client.erase_transaction();
+    let _ = client.erase_transaction();
     let _ = client.set("two", 2);
-    client.send_transaction();
+    let _ = client.send_transaction();
 
     println!(
         "{}",
@@ -116,7 +113,7 @@ fn transaction() {
 }
 
 fn deque() {
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -128,6 +125,19 @@ fn deque() {
     let _ = client.create_deque("tasks", TypeString);
     let _ = client.push_first("tasks", NikkaTypeWrapper::NikkaString("eat"));
     let _ = client.push_last("tasks", NikkaTypeWrapper::NikkaString("dota2"));
-    let _ = client.push_last("tasks", NikkaTypeWrapper::NikkaString("repeat")); // tasks: [eat, dota2, sleep]
+    let _ = client.push_last("tasks", NikkaTypeWrapper::NikkaString("repeat")); // tasks: [eat, dota2, repeat]
     println!("{}", client.pop_first::<String>("tasks").unwrap().unwrap()); // eat
+}
+
+fn deploy() {
+    let db = NikkaServer::from_config_or_default("example.config.nikka");
+    let port = db.get_port().to_string();
+
+    spawn(|| db.run());
+
+    sleep(Duration::from_millis(100));
+
+    let mut client = NikkaClient::with_port(&port);
+
+    let _ = client.set("foo", "bar");
 }

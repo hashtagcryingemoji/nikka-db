@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use nikkadb_client::NikkaClient;
-use nikkadb_server::server::NikkaServer;
+use nikkadb_server::utils::builder::NikkaBuilder;
 use std::hint::black_box;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
@@ -17,7 +17,7 @@ fn benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("bench");
     group.warm_up_time(Duration::from_secs(5));
 
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().backup_operations_count(100000).build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());

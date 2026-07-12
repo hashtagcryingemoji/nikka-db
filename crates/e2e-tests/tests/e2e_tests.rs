@@ -1,6 +1,6 @@
 use nikkadb_client::NikkaType::{TypeString, TypeU8};
 use nikkadb_client::{NikkaClient, NikkaTypeWrapper};
-use nikkadb_server::server::NikkaServer;
+use nikkadb_server::utils::builder::NikkaBuilder;
 use std::fs::OpenOptions;
 use std::io::{Seek, SeekFrom};
 use std::thread::sleep;
@@ -9,7 +9,7 @@ use std::time::Duration;
 
 #[test]
 fn element_insertion_test() {
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -31,7 +31,7 @@ fn element_insertion_test() {
 #[test]
 fn backup_test() {
     setup_files();
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -50,7 +50,7 @@ fn backup_test() {
 
     sleep(Duration::from_secs(1));
 
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -63,7 +63,7 @@ fn backup_test() {
     assert_eq!(db.pop_first("numbers").unwrap(), Some(1));
     db.set("should be in wal", 12);
 
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -77,7 +77,7 @@ fn backup_test() {
 
 #[test]
 fn element_delete_test() {
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -93,7 +93,7 @@ fn element_delete_test() {
 
 #[test]
 fn transaction_test() {
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -117,7 +117,7 @@ fn transaction_test() {
 
 #[test]
 fn regex_test() {
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -138,7 +138,7 @@ fn regex_test() {
 
 #[test]
 fn clear_test() {
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -157,7 +157,7 @@ fn clear_test() {
 
 #[test]
 fn deque_test() {
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -202,7 +202,7 @@ fn deque_test() {
 #[test]
 fn transaction_wal_test() {
     setup_files();
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -225,7 +225,7 @@ fn transaction_wal_test() {
 
     sleep(Duration::from_secs(1));
 
-    let db = NikkaServer::with_port("0");
+    let db = NikkaBuilder::new().build();
     let port = db.get_port().to_string();
 
     spawn(|| db.run());
@@ -241,11 +241,11 @@ fn transaction_wal_test() {
 }
 
 fn setup_files() {
-    let log = OpenOptions::new().read(true).write(true).open("log.nikka");
+    let wal = OpenOptions::new().read(true).write(true).open("wal.nikka");
 
-    if let Ok(mut log_file) = log {
-        log_file.set_len(0);
-        log_file.seek(SeekFrom::Start(0));
+    if let Ok(mut wal_file) = wal {
+        wal_file.set_len(0);
+        wal_file.seek(SeekFrom::Start(0));
     }
 
     let backup = OpenOptions::new()

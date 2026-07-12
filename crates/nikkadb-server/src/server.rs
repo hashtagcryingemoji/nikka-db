@@ -1,5 +1,6 @@
 use crate::database::NikkaDb;
-use crate::utils::trie::TrieNode;
+use crate::utils::builder::NikkaBuilder;
+use crate::utils::parser::parse;
 use crate::ClientState::DEFAULT;
 use crate::{
     extract_serialized_key_value, process_pop_first_request, process_pop_last_request,
@@ -12,99 +13,26 @@ use shared::protocol::{form_packet, Request};
 use shared::Action::{CREATE, DELETE, POPF, POPL, PUSHF, PUSHL};
 use shared::{Deserializable, Serializable};
 use std::collections::{HashMap, VecDeque};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::ErrorKind::WouldBlock;
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 pub struct NikkaServer {
-    database: NikkaDb,
-    clients: HashMap<usize, Client>,
-    tcp_listener: TcpListener,
-    backup_notifier: Sender<bool>,
-    backup_receiver: Receiver<bool>,
-    _log: File,
-    backup: File,
-    wal: File,
-    backup_counter: u8,
-}
-
-impl Default for NikkaServer {
-    #[cold]
-    fn default() -> Self {
-        Self::with_port("1402")
-    }
+    pub(crate) database: NikkaDb,
+    pub(crate) clients: HashMap<usize, Client>,
+    pub(crate) tcp_listener: TcpListener,
+    pub(crate) backup_notifier: Sender<bool>,
+    pub(crate) backup_receiver: Receiver<bool>,
+    pub(crate) backup: File,
+    pub(crate) wal: File,
+    pub(crate) backup_counter: u32,
 }
 
 const SERVER: Token = Token(0);
 impl NikkaServer {
-    #[cold]
-    pub fn new() -> Self {
-        Self::with_port("1402")
-    }
-
-    #[cold]
-    pub fn with_port(port: &str) -> Self {
-        let log = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open("log.nikka")
-            .expect("failed to open or create log file");
-
-        let mut backup = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open("backup.nikka")
-            .expect("failed to open or create backup file");
-        let (backup_notifier, backup_receiver) = channel::<bool>();
-        let mut storage_backup_raw = Vec::new();
-
-        backup
-            .seek(SeekFrom::Start(0))
-            .expect("cannot reach backup file");
-        backup
-            .read_to_end(&mut storage_backup_raw)
-            .expect("cannot reach backup file");
-
-        let storage = HashMap::from_bytes(&storage_backup_raw);
-        let mut trie = TrieNode::new();
-
-        for k in storage.keys() {
-            trie.insert(k);
-        }
-
-        let mut database = NikkaDb { storage, trie };
-
-        let wal = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open("wal.nikka")
-            .expect("failed to open or create wal file");
-
-        update_from_wal(&mut database, &wal);
-
-        let localhost_v4 = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-        let addr = SocketAddr::new(localhost_v4, port.parse::<u16>().expect("invalid port"));
-
-        NikkaServer {
-            database,
-            tcp_listener: TcpListener::bind(addr).expect("cannot bind"),
-            clients: HashMap::new(),
-            backup_notifier,
-            backup_receiver,
-            wal,
-            _log: log,
-            backup,
-            backup_counter: 0,
-        }
-    }
-
     pub fn get_port(&self) -> u16 {
         self.tcp_listener
             .local_addr()
@@ -112,7 +40,8 @@ impl NikkaServer {
             .port()
     }
 
-    pub fn run(mut self) {
+    pub fn run(self) {
+        let mut curr_oper_count = 0;
         let mut unique = 1;
         let mut id_client_map = self.clients;
         let mut poll = Poll::new().expect("cannot poll");
@@ -234,19 +163,49 @@ impl NikkaServer {
                                 .write_all(&response_bytes)
                                 .expect("error occurred while writing a message");
 
-                            self.backup_counter += 1;
+                            curr_oper_count += 1;
 
-                            if self.backup_counter >= 100 {
+                            if curr_oper_count >= self.backup_counter {
                                 self.backup_notifier.send(true).expect(
                                     "cannot send backup notification, probably side thread is dead",
                                 );
-                                self.backup_counter = 0;
+                                curr_oper_count = 0;
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    pub fn from_config_or_default(config_name: &str) -> Self {
+        let Some(config_values) = parse(config_name) else {
+            return NikkaBuilder::new().build();
+        };
+
+        let host = config_values.get("host").map(|raw_host| {
+            let host_repr: Vec<u8> = raw_host
+                .split(".")
+                .map(|x| x.parse::<u8>().expect(&format!("invalid host: {x}")))
+                .collect();
+            if host_repr.len() != 4 {
+                panic!("invalid host: {raw_host}")
+            }
+
+            (host_repr[0], host_repr[1], host_repr[2], host_repr[3])
+        });
+
+        let builder = NikkaBuilder {
+            host,
+            port: config_values.get("port").map(|x| x.parse::<u16>().unwrap()),
+            backup_operations_count: config_values
+                .get("backup_operations_count")
+                .map(|x| x.parse::<u32>().unwrap()),
+            backup: config_values.get("backup_name").map(|x| x.as_str()),
+            wal: config_values.get("wal_name").map(|x| x.as_str()),
+        };
+
+        builder.build()
     }
 }
 
@@ -281,7 +240,7 @@ fn backup_control(
     }
 }
 
-fn update_from_wal(database: &mut NikkaDb, mut wal: &File) {
+pub(crate) fn update_from_wal(database: &mut NikkaDb, mut wal: &File) {
     let mut raw_requests = vec![];
     let mut requests = Vec::new();
     wal.seek(SeekFrom::Start(0)).expect("cannot reach wal file");

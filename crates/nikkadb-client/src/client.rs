@@ -194,9 +194,7 @@ impl NikkaClient {
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .map_err(|e| NikkaError::from(e))?;
+        self.connection.write_all(&content)?;
 
         let _response = form_response(&mut self.connection, &mut self.buffer);
         Ok(())

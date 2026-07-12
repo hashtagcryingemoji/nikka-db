@@ -1,0 +1,6 @@
+host = 127.0.0.1
+port = 1412
+backup_operations_count = 10000 # backup trigger threshold (requests)
+backup_name = example.nikka.backup
+# all points are optional to specify
+# wal = example.nikka.wal
