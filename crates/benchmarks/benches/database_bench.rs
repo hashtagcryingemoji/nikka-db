@@ -7,7 +7,7 @@ use std::time::Duration;
 
 fn crud(client: &mut NikkaClient, key: &str, value: u8) {
     client.set(key, value);
-    let int = client.get::<u8>(key).unwrap();
+    let int = client.get::<u8>(key).unwrap().unwrap();
     client.set(key, value + 1);
     client.remove(key);
     assert_eq!(value, int);

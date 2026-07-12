@@ -27,34 +27,37 @@ fn basic() {
     let _ = client.set::<&str>("language:framework:rust", "axum");
 
     println!("all about java");
-    for query in client.get_regex("language:*:java").unwrap() {
+    for query in client.get_regex("language:*:java").unwrap().unwrap() {
         println!(
             "{} - {}",
             query,
             client
                 .get::<String>(&query)
+                .unwrap()
                 .unwrap_or("undefined".to_string())
         );
     }
 
     println!("take a look on some of the frameworks");
-    for query in client.get_regex("language:framework:*").unwrap() {
+    for query in client.get_regex("language:framework:*").unwrap().unwrap() {
         println!(
             "{} - {}",
             query,
             client
                 .get::<String>(&query)
+                .unwrap()
                 .unwrap_or("undefined".to_string())
         );
     }
 
     println!("everything about everyone");
-    for query in client.get_regex("*:*:*").unwrap() {
+    for query in client.get_regex("*:*:*").unwrap().unwrap() {
         println!(
             "{} - {}",
             query,
             client
                 .get::<String>(&query)
+                .unwrap()
                 .unwrap_or("undefined".to_string())
         );
     }
@@ -63,23 +66,25 @@ fn basic() {
     let _ = client.set("language:framework:javascript", "react");
 
     println!("know the difference!");
-    for query in client.get_regex("*:*:%%%%script").unwrap() {
+    for query in client.get_regex("*:*:%%%%script").unwrap().unwrap() {
         println!(
             "{} - {}",
             query,
             client
                 .get::<String>(&query)
+                .unwrap()
                 .unwrap_or("undefined".to_string())
         );
     }
 
     println!("so similar but so different");
-    for query in client.get_regex("*:framework:j*").unwrap() {
+    for query in client.get_regex("*:framework:j*").unwrap().unwrap() {
         println!(
             "{} - {}",
             query,
             client
                 .get::<String>(&query)
+                .unwrap()
                 .unwrap_or("undefined".to_string())
         );
     }
@@ -101,7 +106,13 @@ fn transaction() {
     let _ = client.set("two", 2);
     client.send_transaction();
 
-    println!("{}", client.get("one").unwrap_or("undefined".to_string()));
+    println!(
+        "{}",
+        client
+            .get("one")
+            .unwrap()
+            .unwrap_or("undefined".to_string())
+    );
 }
 
 fn deque() {
@@ -118,5 +129,5 @@ fn deque() {
     let _ = client.push_first("tasks", NikkaTypeWrapper::NikkaString("eat"));
     let _ = client.push_last("tasks", NikkaTypeWrapper::NikkaString("dota2"));
     let _ = client.push_last("tasks", NikkaTypeWrapper::NikkaString("repeat")); // tasks: [eat, dota2, sleep]
-    println!("{}", client.pop_first::<String>("tasks").unwrap()); // eat
+    println!("{}", client.pop_first::<String>("tasks").unwrap().unwrap()); // eat
 }

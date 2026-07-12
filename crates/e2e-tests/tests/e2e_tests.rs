@@ -19,10 +19,13 @@ fn element_insertion_test() {
     let mut db = NikkaClient::with_port(&port);
 
     db.set("value", "key");
-    assert_eq!(db.get::<String>("value"), Some(String::from("key")));
+    assert_eq!(
+        db.get::<String>("value").unwrap(),
+        Some(String::from("key"))
+    );
     db.set("key", "value");
     db.set("one", 1);
-    assert_eq!(db.get::<u8>("one").unwrap(), 1);
+    assert_eq!(db.get::<u8>("one").unwrap().unwrap(), 1);
 }
 
 #[test]
@@ -56,8 +59,8 @@ fn backup_test() {
 
     let mut db = NikkaClient::with_port(&port);
 
-    assert_eq!(db.get("key"), Some("value".to_string()));
-    assert_eq!(db.pop_first("numbers"), Some(1));
+    assert_eq!(db.get("key").unwrap(), Some("value".to_string()));
+    assert_eq!(db.pop_first("numbers").unwrap(), Some(1));
     db.set("should be in wal", 12);
 
     let db = NikkaServer::with_port("0");
@@ -69,7 +72,7 @@ fn backup_test() {
 
     let mut db = NikkaClient::with_port(&port);
 
-    assert_eq!(db.get::<u8>("should be in wal"), Some(12));
+    assert_eq!(db.get::<u8>("should be in wal").unwrap(), Some(12));
 }
 
 #[test]
@@ -85,7 +88,7 @@ fn element_delete_test() {
 
     db.set("value", "key");
     db.remove("value");
-    assert_eq!(db.get::<String>("value"), None);
+    assert_eq!(db.get::<String>("value").unwrap(), None);
 }
 
 #[test]
@@ -105,8 +108,11 @@ fn transaction_test() {
     client.set("key2", "value").unwrap();
     client.send_transaction();
 
-    assert_eq!(client.get::<String>("key1"), None);
-    assert_eq!(client.get::<String>("key2").unwrap(), "value".to_string());
+    assert_eq!(client.get::<String>("key1").unwrap(), None);
+    assert_eq!(
+        client.get::<String>("key2").unwrap().unwrap(),
+        "value".to_string()
+    );
 }
 
 #[test]
@@ -122,7 +128,7 @@ fn regex_test() {
 
     client.set("alice:bob", "bob");
     client.set("bob:alice", "alice");
-    let mut query = client.get_regex("*:*").unwrap();
+    let mut query = client.get_regex("*:*").unwrap().unwrap();
     let mut real = vec!["alice:bob".to_string(), "bob:alice".to_string()];
     query.sort();
     real.sort();
@@ -145,8 +151,8 @@ fn clear_test() {
     client.set("three", 3);
     client.clear_database();
 
-    assert_eq!(client.get::<String>("one"), None);
-    assert_eq!(client.get::<u8>("three"), None);
+    assert_eq!(client.get::<String>("one").unwrap(), None);
+    assert_eq!(client.get::<u8>("three").unwrap(), None);
 }
 
 #[test]
@@ -163,23 +169,32 @@ fn deque_test() {
     client.create_deque("numbers", TypeU8);
     client.push_first("numbers", NikkaTypeWrapper::NikkaInt(1));
     client.push_last("numbers", NikkaTypeWrapper::NikkaInt(2));
-    assert_eq!(client.pop_first("numbers").unwrap_or(0), 1);
-    assert_eq!(client.pop_last("numbers").unwrap_or(0), 2);
-    assert_eq!(client.pop_last("numbers").unwrap_or(0), 0);
+    assert_eq!(client.pop_first("numbers").unwrap().unwrap_or(0), 1);
+    assert_eq!(client.pop_last("numbers").unwrap().unwrap_or(0), 2);
+    assert_eq!(client.pop_last("numbers").unwrap().unwrap_or(0), 0);
 
     client.create_deque("strings", TypeString);
     client.push_first("strings", NikkaTypeWrapper::NikkaString("one"));
     client.push_last("strings", NikkaTypeWrapper::NikkaString("two"));
     assert_eq!(
-        client.pop_first("strings").unwrap_or("0".to_string()),
+        client
+            .pop_first("strings")
+            .unwrap()
+            .unwrap_or("0".to_string()),
         "one".to_string()
     );
     assert_eq!(
-        client.pop_last("strings").unwrap_or("0".to_string()),
+        client
+            .pop_last("strings")
+            .unwrap()
+            .unwrap_or("0".to_string()),
         "two".to_string()
     );
     assert_eq!(
-        client.pop_last("strings").unwrap_or("0".to_string()),
+        client
+            .pop_last("strings")
+            .unwrap()
+            .unwrap_or("0".to_string()),
         "0".to_string()
     );
 }
@@ -202,8 +217,11 @@ fn transaction_wal_test() {
     client.set("key2", "value").unwrap();
     client.send_transaction();
 
-    assert_eq!(client.get::<String>("key1"), None);
-    assert_eq!(client.get::<String>("key2").unwrap(), "value".to_string());
+    assert_eq!(client.get::<String>("key1").unwrap(), None);
+    assert_eq!(
+        client.get::<String>("key2").unwrap().unwrap(),
+        "value".to_string()
+    );
 
     sleep(Duration::from_secs(1));
 
@@ -215,8 +233,11 @@ fn transaction_wal_test() {
     sleep(Duration::from_millis(100));
 
     let mut client = NikkaClient::with_port(&port);
-    assert_eq!(client.get::<String>("key1"), None);
-    assert_eq!(client.get::<String>("key2").unwrap(), "value".to_string());
+    assert_eq!(client.get::<String>("key1").unwrap(), None);
+    assert_eq!(
+        client.get::<String>("key2").unwrap().unwrap(),
+        "value".to_string()
+    );
 }
 
 fn setup_files() {
@@ -227,7 +248,7 @@ fn setup_files() {
         log_file.seek(SeekFrom::Start(0));
     }
 
-    let mut backup = OpenOptions::new()
+    let backup = OpenOptions::new()
         .read(true)
         .write(true)
         .open("backup.nikka");

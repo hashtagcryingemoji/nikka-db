@@ -1,3 +1,4 @@
+pub mod errors;
 pub mod protocol;
 
 use crate::Action::{

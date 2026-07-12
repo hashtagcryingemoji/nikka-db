@@ -161,7 +161,13 @@ impl Client {
 
     #[inline]
     fn should_be_transaction(&self, request: &Request) -> bool {
-        self.state == TRANSACTION && (request.action == CREATE || request.action == DELETE)
+        self.state == TRANSACTION
+            && (request.action == CREATE
+                || request.action == DELETE
+                || request.action == PUSHF
+                || request.action == PUSHL
+                || request.action == POPL
+                || request.action == POPF)
     }
 
     #[inline]
@@ -198,6 +204,18 @@ fn process_in_transaction(request: Request, snapshot: &mut NikkaDb) -> Response 
             snapshot.delete(key);
 
             Success
+        }
+        POPF => process_pop_first_request(snapshot, &args),
+
+        POPL => process_pop_last_request(snapshot, &args),
+
+        PUSHF => {
+            let content_type = request.content_type.clone();
+            process_push_first_request(snapshot, &args, content_type)
+        }
+        PUSHL => {
+            let content_type = request.content_type.clone();
+            process_push_last_request(snapshot, &args, content_type)
         }
         _ => unreachable!(),
     }

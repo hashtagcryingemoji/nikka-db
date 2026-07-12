@@ -9,6 +9,8 @@ use crate::{
     Conversion, NikkaType, NikkaTypeWrapper,
     NikkaTypeWrapper::{NikkaInt, NikkaString},
 };
+use shared::errors::NikkaError;
+use shared::errors::NikkaError::DatabaseError;
 use shared::protocol::Response::{ContentResponse, Error, Success};
 use shared::protocol::{form_packet, form_response, Request};
 use shared::Action::{POPF, POPL, PUSHF, PUSHL};
@@ -38,7 +40,7 @@ impl NikkaClient {
         }
     }
 
-    pub fn set<T>(&mut self, key: &str, value: T) -> Result<(), String>
+    pub fn set<T>(&mut self, key: &str, value: T) -> Result<(), NikkaError>
     where
         T: Conversion + Serializable,
     {
@@ -47,7 +49,9 @@ impl NikkaClient {
         let mut args = vec![key.to_string()].to_bytes();
         match db_type {
             NString => {
-                args.push(u8::try_from(bytes.len()).expect("argument is too long"));
+                args.push(
+                    u8::try_from(bytes.len()).map_err(|_| DatabaseError("key name is too long"))?,
+                );
                 args.extend_from_slice(&bytes);
             }
             NInt => {
@@ -64,26 +68,24 @@ impl NikkaClient {
         };
 
         let content = form_packet(&request);
-        let Ok(()) = self.connection.write_all(&content) else {
-            return Err("cannot write to server".to_string());
-        };
+        self.connection.write_all(&content)?;
 
         let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
-            Error(message) => Err(message),
-            _ => Err("broken request packet".to_string()),
+            Error(_) => Err(DatabaseError("undefined error occurred")),
+            _ => Err(DatabaseError("broken request packet")),
         }
     }
 
-    pub fn get<T>(&mut self, key: &str) -> Option<T>
+    pub fn get<T>(&mut self, key: &str) -> Result<Option<T>, NikkaError>
     where
         T: Serializable + Deserializable + Conversion,
     {
         let key = key.to_string();
         let mut args = Vec::new();
-        args.push(u8::try_from(key.len()).expect("key name is too big"));
+        args.push(u8::try_from(key.len()).map_err(|_| DatabaseError("key name is too long"))?);
         args.extend_from_slice(key.as_bytes());
 
         let content_type = T::convert();
@@ -96,28 +98,25 @@ impl NikkaClient {
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             ContentResponse(content_type, content) => match content_type {
-                NNone => None,
-                NInt => Some(T::from_bytes(&content)),
-                _ => Some(T::from_bytes(&content[1..])),
+                NNone => Ok(None),
+                NInt => Ok(Some(T::from_bytes(&content))),
+                _ => Ok(Some(T::from_bytes(&content[1..]))),
             },
 
-            //todo(err case should be processed more explicit than just returning none)
-            _ => None,
+            _ => Err(DatabaseError("Invalid key")),
         }
     }
 
-    pub fn remove(&mut self, key: &str) -> Result<(), String> {
+    pub fn remove(&mut self, key: &str) -> Result<(), NikkaError> {
         let key = key.to_string();
         let mut args = Vec::new();
-        args.push(u8::try_from(key.len()).expect("key is too big to store"));
+        args.push(u8::try_from(key.len()).map_err(|_| DatabaseError("key name is too long"))?);
         args.extend_from_slice(key.as_bytes());
 
         let request = Request {
@@ -128,23 +127,23 @@ impl NikkaClient {
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
-            Error(message) => Err(message),
-            _ => Err("broken request packet".to_string()),
+            Error(_) => Err(DatabaseError("undefined error occurred")),
+            _ => Err(DatabaseError("broken request packet")),
         }
     }
 
-    pub fn get_regex(&mut self, regex: &str) -> Option<Vec<String>> {
+    pub fn get_regex(&mut self, regex: &str) -> Result<Option<Vec<String>>, NikkaError> {
         let regex = regex.to_string();
         let mut args = Vec::new();
-        args.push(u8::try_from(regex.len()).expect("argument is too big"));
+        args.push(
+            u8::try_from(regex.len()).map_err(|_| DatabaseError("regex statement is too long"))?,
+        );
         args.extend_from_slice(regex.as_bytes());
 
         let request = Request {
@@ -155,25 +154,22 @@ impl NikkaClient {
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             ContentResponse(content_type, content) => match content_type {
-                NVector(_) => Some(Vec::from_bytes(&content)),
+                NVector(_) => Ok(Some(Vec::from_bytes(&content))),
 
-                _ => Some(Vec::new()),
+                _ => Ok(Some(Vec::new())),
             },
 
-            //todo(err case should be processed more explicit than just returning none)
-            _ => None,
+            _ => Err(DatabaseError("Invalid key")),
         }
     }
 
-    pub fn begin_transaction(&mut self) {
+    pub fn begin_transaction(&mut self) -> Result<(), NikkaError> {
         let request: Request = Request {
             action: Action::TSTART,
             content_type: NNone,
@@ -182,14 +178,14 @@ impl NikkaClient {
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let _response = form_response(&mut self.connection, &mut self.buffer);
+
+        Ok(())
     }
 
-    pub fn send_transaction(&mut self) {
+    pub fn send_transaction(&mut self) -> Result<(), NikkaError> {
         let request: Request = Request {
             action: Action::TEND,
             content_type: NNone,
@@ -200,12 +196,13 @@ impl NikkaClient {
 
         self.connection
             .write_all(&content)
-            .expect("error occurred while writing a message");
+            .map_err(|e| NikkaError::from(e))?;
 
         let _response = form_response(&mut self.connection, &mut self.buffer);
+        Ok(())
     }
 
-    pub fn erase_transaction(&mut self) {
+    pub fn erase_transaction(&mut self) -> Result<(), NikkaError> {
         let request: Request = Request {
             action: Action::TERASE,
             content_type: NNone,
@@ -214,14 +211,14 @@ impl NikkaClient {
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let _response = form_response(&mut self.connection, &mut self.buffer);
+
+        Ok(())
     }
 
-    pub fn abort_transaction(&mut self) {
+    pub fn abort_transaction(&mut self) -> Result<(), NikkaError> {
         let request: Request = Request {
             action: Action::TDISCARD,
             content_type: NNone,
@@ -230,14 +227,14 @@ impl NikkaClient {
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let _response = form_response(&mut self.connection, &mut self.buffer);
+
+        Ok(())
     }
 
-    pub fn clear_database(&mut self) {
+    pub fn clear_database(&mut self) -> Result<(), NikkaError> {
         let request: Request = Request {
             action: Action::CLEAR,
             content_type: NNone,
@@ -246,16 +243,16 @@ impl NikkaClient {
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let _response = form_response(&mut self.connection, &mut self.buffer);
+
+        Ok(())
     }
 
-    pub fn create_deque(&mut self, key: &str, deque_type: NikkaType) -> Result<(), String> {
+    pub fn create_deque(&mut self, key: &str, deque_type: NikkaType) -> Result<(), NikkaError> {
         let mut args = Vec::with_capacity(1 + key.len());
-        args.push(u8::try_from(key.len()).expect("deque name is too long"));
+        args.push(u8::try_from(key.len()).map_err(|_| DatabaseError("deque name is too long"))?);
         args.extend_from_slice(key.as_bytes());
 
         let true_deque_type = match deque_type {
@@ -271,38 +268,34 @@ impl NikkaClient {
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
 
-            _ => Err("cannot create deque".to_string()),
+            _ => Err(DatabaseError("cannot create deque")),
         }
     }
 
-    pub fn push_first(&mut self, key: &str, value: NikkaTypeWrapper) -> Result<(), String> {
-        let request = form_push_request(key, &value, PUSHF);
+    pub fn push_first(&mut self, key: &str, value: NikkaTypeWrapper) -> Result<(), NikkaError> {
+        let request = form_push_request(key, &value, PUSHF)?;
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
-            Error(message) => Err(message),
+            Error(_) => Err(DatabaseError("undefined error occurred")),
             _ => unreachable!(),
         }
     }
 
-    pub fn pop_first<T>(&mut self, key: &str) -> Option<T>
+    pub fn pop_first<T>(&mut self, key: &str) -> Result<Option<T>, NikkaError>
     where
         T: Deserializable,
     {
@@ -314,37 +307,33 @@ impl NikkaClient {
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
-            ContentResponse(NString | NInt, vec) => Some(T::from_bytes(&vec)),
-            _ => None,
+            ContentResponse(NString | NInt, vec) => Ok(Some(T::from_bytes(&vec))),
+            _ => Ok(None),
         }
     }
 
-    pub fn push_last(&mut self, key: &str, value: NikkaTypeWrapper) -> Result<(), String> {
-        let request = form_push_request(key, &value, PUSHL);
+    pub fn push_last(&mut self, key: &str, value: NikkaTypeWrapper) -> Result<(), NikkaError> {
+        let request = form_push_request(key, &value, PUSHL)?;
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
             Success => Ok(()),
-            Error(message) => Err(message),
+            Error(_) => Err(DatabaseError("undefined error occurred")),
             _ => unreachable!(),
         }
     }
 
-    pub fn pop_last<T>(&mut self, key: &str) -> Option<T>
+    pub fn pop_last<T>(&mut self, key: &str) -> Result<Option<T>, NikkaError>
     where
         T: Deserializable,
     {
@@ -356,29 +345,33 @@ impl NikkaClient {
 
         let content = form_packet(&request);
 
-        self.connection
-            .write_all(&content)
-            .expect("error occurred while writing a message");
+        self.connection.write_all(&content)?;
 
         let response = form_response(&mut self.connection, &mut self.buffer);
 
         match response {
-            ContentResponse(NString | NInt, vec) => Some(T::from_bytes(&vec)),
-            _ => None,
+            ContentResponse(NString | NInt, vec) => Ok(Some(T::from_bytes(&vec))),
+            _ => Ok(None),
         }
     }
 }
 
-fn form_push_request(key: &str, value: &NikkaTypeWrapper, action: Action) -> Request {
+fn form_push_request(
+    key: &str,
+    value: &NikkaTypeWrapper,
+    action: Action,
+) -> Result<Request, NikkaError> {
     let request = match value {
         NikkaInt(int) => {
             let value_bytes = Serializable::to_bytes(int);
 
             let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
-            args.push(u8::try_from(key.len()).expect("key is too big"));
+            args.push(u8::try_from(key.len()).map_err(|_| DatabaseError("key is too long"))?);
             args.extend_from_slice(key.as_bytes());
 
-            args.push(u8::try_from(value_bytes.len()).expect("value is too big"));
+            args.push(
+                u8::try_from(value_bytes.len()).map_err(|_| DatabaseError("key is too long"))?,
+            );
             args.extend_from_slice(&value_bytes);
 
             Request {
@@ -393,10 +386,12 @@ fn form_push_request(key: &str, value: &NikkaTypeWrapper, action: Action) -> Req
             let value_bytes = string.to_bytes();
 
             let mut args = Vec::with_capacity(key.len() + value_bytes.len() + 2);
-            args.push(u8::try_from(key.len()).expect("key is too big"));
+            args.push(u8::try_from(key.len()).map_err(|_| DatabaseError("key name is too long"))?);
             args.extend_from_slice(key.as_bytes());
 
-            args.push(u8::try_from(value_bytes.len()).expect("value is too big"));
+            args.push(
+                u8::try_from(value_bytes.len()).map_err(|_| DatabaseError("value is too big"))?,
+            );
             args.extend_from_slice(&value_bytes);
             Request {
                 action,
@@ -405,5 +400,5 @@ fn form_push_request(key: &str, value: &NikkaTypeWrapper, action: Action) -> Req
             }
         }
     };
-    request
+    Ok(request)
 }

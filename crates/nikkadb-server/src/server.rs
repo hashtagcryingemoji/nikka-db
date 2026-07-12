@@ -257,7 +257,7 @@ fn backup_control(
     wal: &Arc<Mutex<File>>,
 ) {
     loop {
-        while let Ok(_) = receiver.recv() {
+        while receiver.recv().is_ok() {
             let db = database
                 .read()
                 .expect("error when trying to access a db mutex");
